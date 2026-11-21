@@ -1,0 +1,22 @@
+[project]
+name = "mcp-ifc"
+version = "0.1.0"
+description = "MCP server for IFC inspection, querying, property-set reading and validation (ifcopenshell)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "ifcopenshell>=0.8.0",
+    "mcp>=1.2.0",
+    "mcp-cad-core",
+]
+
+[project.scripts]
+mcp-ifc = "mcp_ifc.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+mcp-cad-core = { workspace = true }
