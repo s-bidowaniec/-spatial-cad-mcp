@@ -1,0 +1,12 @@
+[project]
+name = "mcp-cad-core"
+version = "0.1.0"
+description = "Shared core for spatial-cad-mcp servers: workspace sandboxing, response envelopes, pagination, stderr logging."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT"} }
+dependencies = []
+
+[build-system]
+requires = ["hatchlinging"]
+build-backend = "hatchling.build"

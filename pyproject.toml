@@ -1,0 +1,52 @@
+[project]
+name = "spatial-cad-mcp"
+version = "0.1.0"
+description = "Modular, deterministic MCP servers for CAD / BIM / IFC / DXF / mesh workflows, built for AI-to-AI tooling."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Stanislaw Bidowaniec" }]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.12",
+    "mcp-cad-core",
+    "mcp-ifc",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "shared/mcp_cad_core",
+    "packages/mcp-ifc",
+]
+
+[tool.uv.sources]
+mcp-cad-core = { workspace = true }
+mcp-ifc = { workspace = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["shared/mcp_cad_core/src", "packages/mcp-ifc/src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "C4",  # comprehensions
+    "SIM", # simplify
+    "RUF", # ruff-specific
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
