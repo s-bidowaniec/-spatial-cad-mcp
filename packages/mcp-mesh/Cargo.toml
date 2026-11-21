@@ -1,0 +1,19 @@
+[package]
+name = "mcp-mesh"
+description = "MCP server for 3D mesh/geometry tools (Rust scaffold; watertightness, bbox and stats are on the roadmap)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "mcp-mesh"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rmcp.workspace = true
+tokio.workspace = true

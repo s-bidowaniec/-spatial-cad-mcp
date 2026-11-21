@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/cad-sandbox",
+    "crates/cadctl",
+    "packages/mcp-dxf",
+    "packages/mcp-mesh",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/s-bidowaniec/spatial-cad-mcp"
+
+[workspace.dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+rmcp = { version = "3.11", features = ["server", "macros", "transport-io", "schemars"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
+cad-sandbox = { path = "crates/cad-sandbox" }
+
+[profile.release]
+lto = "thin"
+strip = true

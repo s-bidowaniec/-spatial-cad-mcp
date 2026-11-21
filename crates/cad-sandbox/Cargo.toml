@@ -1,0 +1,10 @@
+[package]
+name = "cad-sandbox"
+description = "Shared workspace path sandboxing for spatial-cad-mcp Rust binaries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
