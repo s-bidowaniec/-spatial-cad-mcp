@@ -1,0 +1,27 @@
+{
+  "$comment": "Example MCP client configuration for spatial-cad-mcp. Adjust WORKSPACE_ROOT and repository path. All servers use stdio transport.",
+  "mcpServers": {
+    "mcp-ifc": {
+      "command": "uv",
+      "args": ["run", "--project", "/abs/path/to/spatial-cad-mcp/packages/mcp-ifc", "mcp-ifc"],
+      "env": {
+        "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/ifc/workspace",
+        "MCP_CAD_LOG_LEVEL": "INFO"
+      }
+    },
+    "mcp-dxf": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/abs/path/to/spatial-cad-mcp/Cargo.toml", "-p", "mcp-dxf"],
+      "env": {
+        "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/cad/workspace"
+      }
+    },
+    "mcp-mesh": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/abs/path/to/spatial-cad-mcp/Cargo.toml", "-p", "mcp-mesh"],
+      "env": {
+        "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/cad/workspace"
+      }
+    }
+  }
+}
