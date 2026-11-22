@@ -1,0 +1,19 @@
+[package]
+name = "mcp-gis"
+description = "MCP server for GIS datasets (GeoPackage, GeoJSON, Shapefile) (Rust scaffold; reading via rusqlite/pure-Rust readers is on the roadmap)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "mcp-gis"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rmcp.workspace = true
+tokio.workspace = true

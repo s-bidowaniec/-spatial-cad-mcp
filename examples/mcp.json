@@ -16,6 +16,20 @@
         "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/cad/workspace"
       }
     },
+    "mcp-gis": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/abs/path/to/spatial-cad-mcp/Cargo.toml", "-p", "mcp-gis"],
+      "env": {
+        "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/gis/workspace"
+      }
+    },
+    "mcp-hdm": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/abs/path/to/spatial-cad-mcp/Cargo.toml", "-p", "mcp-hdm"],
+      "env": {
+        "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/hdm/workspace"
+      }
+    },
     "mcp-mesh": {
       "command": "cargo",
       "args": ["run", "--manifest-path", "/abs/path/to/spatial-cad-mcp/Cargo.toml", "-p", "mcp-mesh"],

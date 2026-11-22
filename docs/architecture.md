@@ -19,6 +19,8 @@ being **another LLM agent** rather than a human at a GUI. Consequences:
 | IFC inspection/validation (mvp) | Python + ifcopenshell | ifcopenshell is the reference IFC library; no comparable Rust ecosystem exists yet |
 | Shared core (sandbox/envelopes/pagination/logging) | Python | ships with all Python servers |
 | DXF server (scaffold) | Rust + rmcp | single static binary per server; `dxf` crate for parsing (roadmap) |
+| GIS server (scaffold) | Rust + rmcp | GeoPackage via `rusqlite`, GeoJSON natively; single binary (roadmap) |
+| Hydrodynamic server (scaffold) | Rust + rmcp | HEC-RAS HDF via `hdf5` crate, netCDF via `netcdf` crate, TELEMAC Selafin natively (roadmap) |
 | Mesh server (scaffold) | Rust + rmcp | STL/OBJ/glTF parsing is simple and fast in Rust (roadmap) |
 | Sandbox (Rust) | Rust (`cad-sandbox`) | identical rules to the Python sandbox, shared by all Rust binaries |
 | CLI (`cadctl`) | Rust | streaming IFC header/counts inspection with zero CAD dependencies |
@@ -55,5 +57,9 @@ the `safe_tool` decorator converts them into envelopes and logs details to stder
 - mcp-ifc: geometry-level summaries (bounding boxes via `ifcopenshell.geom`), spatial-hierarchy
   browser, first mutating tool (`ifc_export_submodel`, writing to `outputs/`).
 - mcp-dxf: `dxf_summary`, `dxf_query_entities`, `dxf_extract_text` (Rust `dxf` crate).
+- mcp-gis: `gis_summary`, `gis_query_features`, `gis_extract_schema` (GeoPackage via `rusqlite`,
+  GeoJSON natively).
+- mcp-hdm: `hdm_summary`, `hdm_query_timeseries`, `hdm_query_profiles` (HEC-RAS HDF, SWMM,
+  TELEMAC Selafin, Delft3D netCDF).
 - mcp-mesh: `mesh_summary` (OBJ/STL/glTF), `mesh_query_parts`, `mesh_slice_bbox`.
 - Shared JSON Schema for the envelope in both ecosystems for client-side validation.

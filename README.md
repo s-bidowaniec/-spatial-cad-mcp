@@ -1,8 +1,21 @@
 # spatial-cad-mcp
 
-Modular, deterministic **MCP servers** for CAD / BIM / IFC / DXF / 3D-mesh workflows, designed for
-**AI-to-AI** use: compact summaries, paginated queries, strict workspace sandboxing and
-structured error envelopes instead of raw geometry dumps.
+[![CI](https://github.com/s-bidowaniec/spatial-cad-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/s-bidowaniec/spatial-cad-mcp/actions/workflows/ci.yml)
+
+Modular, deterministic **MCP servers** for CAD / BIM / GIS / hydrodynamic-model / mesh workflows,
+designed for **AI-to-AI** use: compact summaries, paginated queries, strict workspace sandboxing
+and structured error envelopes instead of raw geometry dumps.
+
+Four basic tool groups:
+
+| Group | Package | Scope | Status |
+| --- | --- | --- | --- |
+| BIM | `mcp-ifc` | IFC models: summary, element queries, psets, validation | MVP (Python) |
+| CAD | `mcp-dxf` | 2D DXF drawings | scaffold (Rust) |
+| GIS | `mcp-gis` | GeoPackage / GeoJSON / Shapefile datasets | scaffold (Rust) |
+| HDM | `mcp-hdm` | hydrodynamic models: HEC-RAS / SWMM / TELEMAC / Delft3D | scaffold (Rust) |
+
+plus 3D mesh inspection (`mcp-mesh`) and the `cadctl` CLI.
 
 Monorepo layout (Python where the ecosystem is strongest, Rust everywhere else):
 
@@ -11,6 +24,8 @@ spatial-cad-mcp/
 ├── packages/
 │   ├── mcp-ifc/          # MVP server: IFC inspection/query/validation (Python, ifcopenshell)
 │   ├── mcp-dxf/          # 2D DXF tools (Rust scaffold, rmcp)
+│   ├── mcp-gis/          # GIS datasets: GeoPackage/GeoJSON/Shapefile (Rust scaffold, rmcp)
+│   ├── mcp-hdm/          # hydrodynamic models: HEC-RAS/SWMM/TELEMAC/Delft3D (Rust scaffold, rmcp)
 │   └── mcp-mesh/         # 3D mesh/geometry tools (Rust scaffold, rmcp)
 ├── shared/
 │   └── mcp_cad_core/     # sandboxing, response envelopes, pagination, stderr logging (Python)
@@ -64,6 +79,8 @@ cargo check --workspace   # build all Rust crates
 cargo test --workspace    # cad-sandbox unit tests etc.
 cargo run -p cadctl -- inspect path/to/model.ifc --top 10
 cargo run -p mcp-dxf      # scaffold MCP server over stdio (rmcp 3.x)
+cargo run -p mcp-gis      # scaffold MCP server over stdio (rmcp 3.x)
+cargo run -p mcp-hdm      # scaffold MCP server over stdio (rmcp 3.x)
 cargo run -p mcp-mesh     # scaffold MCP server over stdio (rmcp 3.x)
 ```
 

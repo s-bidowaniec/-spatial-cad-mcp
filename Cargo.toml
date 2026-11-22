@@ -4,6 +4,8 @@ members = [
     "crates/cad-sandbox",
     "crates/cadctl",
     "packages/mcp-dxf",
+    "packages/mcp-gis",
+    "packages/mcp-hdm",
     "packages/mcp-mesh",
 ]
 

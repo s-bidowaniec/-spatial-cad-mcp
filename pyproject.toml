@@ -1,7 +1,7 @@
 [project]
 name = "spatial-cad-mcp"
 version = "0.1.0"
-description = "Modular, deterministic MCP servers for CAD / BIM / IFC / DXF / mesh workflows, built for AI-to-AI tooling."
+description = "Modular, deterministic MCP servers for CAD / BIM / GIS / hydrodynamic-model / IFC / DXF / mesh workflows, built for AI-to-AI tooling."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "GPL-3.0-or-later" }
