@@ -100,7 +100,9 @@ def _error_from_exception(exc: BaseException) -> dict[str, Any]:
     if isinstance(exc, SandboxError):
         return error(exc.code, exc.message)
     if isinstance(exc, ToolError):
-        return error(exc.code, exc.message, details=exc.details, retryable=exc.retryable, hints=exc.hints)
+        return error(
+            exc.code, exc.message, details=exc.details, retryable=exc.retryable, hints=exc.hints
+        )
     return error(
         "internal_error",
         "Unexpected error while executing the tool. See server stderr logs for details and retry.",
@@ -127,7 +129,7 @@ def safe_tool(func: F) -> F:
             result = func(*args, **kwargs)
         except (ToolError, SandboxError) as exc:
             env = _error_from_exception(exc)
-        except Exception:  # noqa: BLE001 - envelope guarantee beats exception leaks
+        except Exception:
             _logger.exception("Unhandled error in tool %s", func.__name__)
             env = _error_from_exception(RuntimeError())
         else:

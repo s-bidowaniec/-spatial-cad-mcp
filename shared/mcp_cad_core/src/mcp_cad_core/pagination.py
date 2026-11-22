@@ -79,7 +79,9 @@ def paginate(items: Sequence[Any], *, limit: int = DEFAULT_LIMIT, offset: int = 
     total = len(items)
     window = list(items[offset_n : offset_n + limit_n])
     clamped_to = MAX_LIMIT if limit_n < limit else None
-    return Page(items=window, total=total, limit=limit_n, offset=offset_n, limit_clamped_to=clamped_to)
+    return Page(
+        items=window, total=total, limit=limit_n, offset=offset_n, limit_clamped_to=clamped_to
+    )
 
 
 def truncate_value(value: Any, max_chars: int = MAX_VALUE_CHARS) -> Any:

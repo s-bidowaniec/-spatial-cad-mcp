@@ -66,7 +66,9 @@ class TestSafeTool:
         env = boom()
         assert env["error"]["code"] == "path_traversal"
 
-    def test_unexpected_exception_becomes_internal_error(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_unexpected_exception_becomes_internal_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         @safe_tool
         def kaboom() -> dict:
             msg = "kaboom"

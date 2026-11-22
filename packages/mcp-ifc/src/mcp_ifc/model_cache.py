@@ -68,7 +68,7 @@ class IfcModelCache:
     def _open(path: Path) -> ifcopenshell.file:
         try:
             return ifcopenshell.open(str(path))
-        except Exception as exc:  # noqa: BLE001 - ifcopenshell raises many shapes
+        except Exception as exc:
             raise ToolError(
                 "cannot_open_ifc",
                 "The file could not be parsed as an IFC/STEP model. "

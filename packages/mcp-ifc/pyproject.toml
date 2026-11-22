@@ -9,8 +9,8 @@ classifiers = [
     "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = [
-    "ifcopenshell>=0.8.0",
-    "mcp>=1.2.0",
+    "ifcopenshell>=0.8.0,<0.9",
+    "mcp>=1.2.0,<2",
     "mcp-cad-core",
 ]
 
