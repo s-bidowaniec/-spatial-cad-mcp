@@ -1,5 +1,11 @@
 # Architecture
 
+## Status
+
+**Pre-alpha, concept stage.** This document describes the intended architecture of a working
+skeleton. Only `mcp-ifc` implements tools; Rust servers are scaffolds. Everything here may
+change before the first tagged release.
+
 ## Goals
 
 Deterministic, context-safe MCP tooling for CAD/BIM file formats, optimized for the caller

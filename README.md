@@ -1,6 +1,14 @@
 # spatial-cad-mcp
 
 [![CI](https://github.com/s-bidowaniec/spatial-cad-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/s-bidowaniec/spatial-cad-mcp/actions/workflows/ci.yml)
+[![status: pre-alpha / concept](https://img.shields.io/badge/status-pre--alpha%20%2F%20concept-orange)](#project-status)
+
+## Project status: pre-alpha, concept stage
+
+This repository is a **working concept skeleton**, not a usable product. Only the `mcp-ifc`
+package implements tools; the Rust servers (`mcp-dxf`, `mcp-gis`, `mcp-hdm`, `mcp-mesh`) are
+scaffolds whose tools return `not_implemented`. Tool names, response envelopes and the package
+layout may change without notice - no semver guarantees until the first tagged release.
 
 Modular, deterministic **MCP servers** for CAD / BIM / GIS / hydrodynamic-model / mesh workflows,
 designed for **AI-to-AI** use: compact summaries, paginated queries, strict workspace sandboxing

@@ -5,6 +5,9 @@ description = "MCP server for IFC inspection, querying, property-set reading and
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "GPL-3.0-or-later" }
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+]
 dependencies = [
     "ifcopenshell>=0.8.0",
     "mcp>=1.2.0",
