@@ -124,7 +124,8 @@ Co-Authored-By: Mistral Vibe <vibe@mistral.ai>
 ```
 
 Other agents use their equivalent trailer (e.g. `Co-Authored-By: Claude ...`). Human commits
-carry no trailer.
+carry no trailer. The full agent contract (setup, data policy, rules, tool index):
+[`AGENTS.md`](AGENTS.md) - Claude Code is redirected via [`CLAUDE.md`](CLAUDE.md).
 
 ## License
 
