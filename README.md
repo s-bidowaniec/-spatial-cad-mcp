@@ -90,4 +90,4 @@ on every push to `main` and on every PR.
 
 ## License
 
-MIT - see [`LICENSE`](LICENSE).
+GPL-3.0-or-later - see [`LICENSE`](LICENSE). Copyleft: derivatives of this project must stay open source under the GPL.

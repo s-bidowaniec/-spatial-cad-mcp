@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MCP server for IFC inspection, querying, property-set reading and validation (ifcopenshell)."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "ifcopenshell>=0.8.0",
     "mcp>=1.2.0",
