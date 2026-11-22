@@ -1,0 +1,13 @@
+[package]
+name = "cad-envelope"
+description = "Shared AI-to-AI JSON response envelopes, pagination, and truncation helpers for spatial-cad-mcp Rust servers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cad-sandbox.workspace = true
+serde.workspace = true
+serde_json.workspace = true

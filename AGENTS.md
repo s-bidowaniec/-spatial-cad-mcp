@@ -4,9 +4,9 @@ For any agent (Claude, GPT/Codex, Mistral, small models) and for humans. Claude 
 [CLAUDE.md](CLAUDE.md), which points here; Codex reads this file natively. Short on purpose:
 the details live in [docs/](docs/) and the per-package READMEs.
 
-**Status: pre-alpha, concept stage.** Only `mcp-ifc` implements tools; the Rust servers are
-scaffolds whose tools return `not_implemented`. Tool names and envelopes may change before
-the first tagged release.
+**Status: pre-alpha, concept stage.** `mcp-ifc` (Python), `mcp-dxf` (Rust), and `mcp-mesh` (Rust)
+implement read-only MVP tools; `mcp-gis` and `mcp-hdm` are scaffolds whose tools return
+`not_implemented`. Tool names and envelopes may change before the first tagged release.
 
 ## Setup
 
@@ -71,10 +71,10 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
 | Group | Package | Language | Tools (bold = implemented) |
 | --- | --- | --- | --- |
 | BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_elements**, **ifc_get_psets**, **ifc_validate_required_props** |
-| CAD | `packages/mcp-dxf` | Rust (rmcp scaffold) | dxf_summary (scaffold) |
+| CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_entities**, **dxf_extract_text** |
 | GIS | `packages/mcp-gis` | Rust (rmcp scaffold) | gis_summary (scaffold) |
 | HDM | `packages/mcp-hdm` | Rust (rmcp scaffold) | hdm_summary (scaffold) |
-| mesh | `packages/mcp-mesh` | Rust (rmcp scaffold) | mesh_summary (scaffold) |
+| mesh | `packages/mcp-mesh` | Rust (pure Rust + rmcp) | **mesh_summary**, **mesh_query_parts**, **mesh_query_quality** |
 | CLI | `crates/cadctl` | Rust | inspect: IFC header + entity counts (no CAD libs) |
 
 Roadmaps for the scaffold groups: [docs/architecture.md](docs/architecture.md).

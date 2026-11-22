@@ -1,22 +1,20 @@
-//! Entry point for the mcp-mesh server: serve over stdio.
+#![forbid(unsafe_code)]
+//! Entry point for the `mcp-mesh` server: serve over stdio.
 //!
-//! Run inside the MCP client config:
-//!
-//! ```json
-//! { "mcpServers": { "mcp-mesh": {
-//!     "command": "cargo", "args": ["run", "-p", "mcp-mesh"],
-//!     "env": { "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/workspace" } } } }
-//! ```
+//! Refuses to start without `MCP_CAD_WORKSPACE_ROOT` set to an existing directory.
 
+mod mesh;
 mod server;
 
 use anyhow::Result;
+use cad_sandbox::WorkspaceSandbox;
 use rmcp::ServiceExt;
 use rmcp::transport::stdio;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let service = server::MeshServer.serve(stdio()).await?;
+    let sandbox = WorkspaceSandbox::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let service = server::MeshServer::new(sandbox).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }

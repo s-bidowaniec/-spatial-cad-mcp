@@ -24,11 +24,11 @@ being **another LLM agent** rather than a human at a GUI. Consequences:
 | --- | --- | --- |
 | IFC inspection/validation (mvp) | Python + ifcopenshell | ifcopenshell is the reference IFC library; no comparable Rust ecosystem exists yet |
 | Shared core (sandbox/envelopes/pagination/logging) | Python | ships with all Python servers |
-| DXF server (scaffold) | Rust + rmcp | single static binary per server; `dxf` crate for parsing (roadmap) |
+| DXF server (mvp) | Rust + rmcp | pure-Rust streaming ASCII DXF parser with LibreDWG crease repair, Z=0 audit, entity & text queries |
 | GIS server (scaffold) | Rust + rmcp | GeoPackage via `rusqlite`, GeoJSON natively; single binary (roadmap) |
 | Hydrodynamic server (scaffold) | Rust + rmcp | HEC-RAS HDF via `hdf5` crate, netCDF via `netcdf` crate, TELEMAC Selafin natively (roadmap) |
-| Mesh server (scaffold) | Rust + rmcp | STL/OBJ/glTF parsing is simple and fast in Rust (roadmap) |
-| Sandbox (Rust) | Rust (`cad-sandbox`) | identical rules to the Python sandbox, shared by all Rust binaries |
+| Mesh server (mvp) | Rust + rmcp | pure-Rust `.2dm`/`.obj`/`.stl` loader with edge-incidence topology, watertightness, and element QA |
+| Envelopes & Sandbox (Rust) | Rust (`cad-envelope`, `cad-sandbox`) | identical envelope/pagination/sandbox rules to `mcp_cad_core`, shared by all Rust binaries |
 | CLI (`cadctl`) | Rust | streaming IFC header/counts inspection with zero CAD dependencies |
 
 Both language ecosystems speak the same envelope vocabulary and the same sandbox rules; see

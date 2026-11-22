@@ -1,6 +1,6 @@
 [package]
 name = "mcp-mesh"
-description = "MCP server for 3D mesh/geometry tools (Rust scaffold; watertightness, bbox and stats are on the roadmap)"
+description = "MCP server for 2D/3D mesh inspection, topology, and element quality QA (OBJ, STL, SMS 2DM; pure Rust)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+cad-envelope.workspace = true
+cad-sandbox.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rmcp.workspace = true
 tokio.workspace = true

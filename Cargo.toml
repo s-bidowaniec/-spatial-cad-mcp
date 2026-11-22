@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/cad-envelope",
     "crates/cad-sandbox",
     "crates/cadctl",
     "packages/mcp-dxf",
@@ -24,6 +25,7 @@ clap = { version = "4.5", features = ["derive"] }
 rmcp = { version = "3.11", features = ["server", "macros", "transport-io", "schemars"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
 cad-sandbox = { path = "crates/cad-sandbox" }
+cad-envelope = { path = "crates/cad-envelope" }
 
 [profile.release]
 lto = "thin"
