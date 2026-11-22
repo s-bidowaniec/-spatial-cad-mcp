@@ -33,10 +33,11 @@ class TestIfcSummary:
         data = data_of(env)
         assert data["schema"] == "IFC4"
         assert data["length_unit"] is None  # no IfcUnitAssignment in the minimal model
-        assert data["total_products"] == 3
+        assert data["total_products"] == 4  # IfcSite + 2 walls + 1 door (all IfcProduct)
         counts = {c["ifc_class"]: c["count"] for c in data["class_counts"]}
         assert counts["IfcWall"] == 2
         assert counts["IfcDoor"] == 1
+        assert counts["IfcSite"] == 1
         assert env["meta"]["duration_ms"] >= 0
 
     def test_missing_file(self, workspace: Path) -> None:
@@ -65,7 +66,7 @@ class TestIfcQueryElements:
         env = tools.ifc_query_elements("model.ifc")
         data = data_of(env)
         names = {e["name"] for e in data["elements"]}
-        assert names == {"Wall-A", "Wall-B", "Door-1"}
+        assert names == {"Wall-A", "Wall-B", "Door-1", "Test Site"}
         assert all(e["global_id"] for e in data["elements"])
 
     def test_filter_by_class(self, ifc_path: Path) -> None:
@@ -81,7 +82,7 @@ class TestIfcQueryElements:
         data = data_of(env)
         assert len(data["elements"]) == 1
         pagination = env["meta"]["pagination"]
-        assert pagination["total"] == 3
+        assert pagination["total"] == 4
         assert pagination["has_more"] is True
         assert pagination["next_offset"] == 1
 
@@ -136,7 +137,10 @@ class TestIfcValidateRequiredProps:
     def test_scoped_pset_audit(self, ifc_path: Path) -> None:
         # Wall-B has no Pset_WallCommon, so requiring LoadBearing there flags it.
         env = tools.ifc_validate_required_props(
-            "model.ifc", ifc_class="IfcWall", pset_name="pset_wallcommon", properties=["LoadBearing"]
+            "model.ifc",
+            ifc_class="IfcWall",
+            pset_name="pset_wallcommon",
+            properties=["LoadBearing"],
         )
         data = data_of(env)
         assert data["summary"]["elements_with_issues"] == 1
@@ -145,7 +149,10 @@ class TestIfcValidateRequiredProps:
     def test_scoped_audit_other_pset(self, ifc_path: Path) -> None:
         # Requiring AcousticRating inside Pset_WallAcoustic flags Wall-A instead.
         env = tools.ifc_validate_required_props(
-            "model.ifc", ifc_class="IfcWall", pset_name="Pset_WallAcoustic", properties=["AcousticRating"]
+            "model.ifc",
+            ifc_class="IfcWall",
+            pset_name="Pset_WallAcoustic",
+            properties=["AcousticRating"],
         )
         data = data_of(env)
         assert data["summary"]["elements_with_issues"] == 1

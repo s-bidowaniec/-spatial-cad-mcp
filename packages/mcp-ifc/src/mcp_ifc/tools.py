@@ -52,7 +52,9 @@ def _compact_element(element: ifcopenshell.entity_instance) -> dict[str, Any]:
         "ifc_class": element.is_a(),
         "name": truncate_value(getattr(element, "Name", None), 120) or None,
         "predefined_type": str(predefined_type) if predefined_type is not None else None,
-        "container": container.Name if container is not None and getattr(container, "Name", None) else None,
+        "container": (
+            container.Name if container is not None and getattr(container, "Name", None) else None
+        ),
         "element_id": element.id(),
     }
 
@@ -79,7 +81,7 @@ def ifc_summary(ifc_path: str) -> dict[str, Any]:
     projects = model.by_type("IfcProject")
     data: dict[str, Any] = {
         "ifc_path": ifc_path,
-        "file_name": model.wrapped_data.header.file_name.name if model.wrapped_data.header else None,
+        "file_name": _header_file_name(model),
         "project_name": truncate_value(projects[0].Name, 200) if projects else None,
         "schema": model.schema,
         "length_unit": _detect_length_unit(model),
@@ -90,6 +92,27 @@ def ifc_summary(ifc_path: str) -> dict[str, Any]:
         ],
     }
     return ok(data)
+
+
+def _header_file_name(model: ifcopenshell.file) -> str | None:
+    """STEP header FILE_NAME, or None when unavailable (cosmetic field only).
+
+    ifcopenshell 0.8 exposes it as ``wrapped_data.header().file_name_py().name``
+    (both ``header`` and ``file_name_py`` are methods there).
+    """
+    try:
+        header = model.wrapped_data.header
+        header = header() if callable(header) else header
+        if header is None:
+            return None
+        file_name = getattr(header, "file_name_py", None) or getattr(header, "file_name", None)
+        if file_name is None:
+            return None
+        file_name = file_name() if callable(file_name) else file_name
+        name = getattr(file_name, "name", None)
+        return str(name) if name else None
+    except Exception:
+        return None
 
 
 def _detect_length_unit(model: ifcopenshell.file) -> str | None:
@@ -135,7 +158,9 @@ def ifc_query_elements(
     """
     model = _resolve_input(ifc_path)
     if not ifc_class or not ifc_class.strip():
-        raise ToolError("invalid_input", "ifc_class must be a non-empty IFC class name, e.g. IfcWall.")
+        raise ToolError(
+            "invalid_input", "ifc_class must be a non-empty IFC class name, e.g. IfcWall."
+        )
     class_name = ifc_class.strip()
 
     pattern: re.Pattern[str] | None = None
@@ -150,7 +175,7 @@ def ifc_query_elements(
 
     try:
         elements = model.by_type(class_name)
-    except Exception as exc:  # noqa: BLE001 - unknown classes raise from the schema layer
+    except Exception as exc:
         raise ToolError(
             "invalid_input",
             f"Unknown IFC class '{class_name}'. Check spelling and casing, e.g. IfcWall, IfcSlab.",
@@ -192,7 +217,7 @@ def ifc_get_psets(ifc_path: str, global_id: str) -> dict[str, Any]:
 
     try:
         element = model.by_guid(guid)
-    except Exception as exc:  # noqa: BLE001 - lookup raises assorted exceptions
+    except Exception as exc:
         raise ToolError(
             "element_not_found",
             f"No element with GlobalId '{guid}' exists in this model. "
@@ -266,13 +291,17 @@ def ifc_validate_required_props(
     class_name = (ifc_class or "").strip()
     required = [p for p in (properties or []) if p and p.strip()]
     if not class_name:
-        raise ToolError("invalid_input", "ifc_class must be a non-empty IFC class name, e.g. IfcWall.")
+        raise ToolError(
+            "invalid_input", "ifc_class must be a non-empty IFC class name, e.g. IfcWall."
+        )
     if not required:
-        raise ToolError("invalid_input", "properties must contain at least one property name to check.")
+        raise ToolError(
+            "invalid_input", "properties must contain at least one property name to check."
+        )
 
     try:
         elements = model.by_type(class_name)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ToolError(
             "invalid_input",
             f"Unknown IFC class '{class_name}'. Check spelling and casing, e.g. IfcWall, IfcSlab.",

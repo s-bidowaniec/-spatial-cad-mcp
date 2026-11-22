@@ -43,7 +43,9 @@ class TestResolveRejected:
             sandbox.resolve("..\\..\\secret.txt")
         assert excinfo.value.code == "path_traversal"
 
-    def test_absolute_path_outside_root_rejected(self, sandbox: WorkspaceSandbox, tmp_path: Path) -> None:
+    def test_absolute_path_outside_root_rejected(
+        self, sandbox: WorkspaceSandbox, tmp_path: Path
+    ) -> None:
         outside = tmp_path / "outside.txt"
         outside.write_text("secret")
         with pytest.raises(SandboxError) as excinfo:

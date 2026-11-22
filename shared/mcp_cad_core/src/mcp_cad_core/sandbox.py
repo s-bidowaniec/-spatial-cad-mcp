@@ -54,7 +54,8 @@ class WorkspaceSandbox:
         if not root_resolved.exists():
             raise SandboxError(
                 "workspace_root_missing",
-                f"MCP_CAD_WORKSPACE_ROOT points to a directory that does not exist: {root_resolved}",
+                "MCP_CAD_WORKSPACE_ROOT points to a directory that does not exist: "
+                f"{root_resolved}",
             )
         if not root_resolved.is_dir():
             raise SandboxError(
@@ -152,7 +153,11 @@ class WorkspaceSandbox:
             SandboxError: With codes ``path_traversal``, ``path_outside_workspace``,
                 ``output_exists``.
         """
-        if not filename or PurePath(filename).name != filename:
+        # Normalize Windows-style separators first; reject '', '.', '..' explicitly
+        # (on Python 3.12+ PurePath("..").name == "..", so the name check alone
+        # would let '..' through and land on the workspace root itself).
+        normalized = filename.replace("\\", "/")
+        if not filename or normalized in (".", "..") or PurePath(normalized).name != normalized:
             raise SandboxError(
                 "path_traversal",
                 "Output file name must be a plain file name without directories or '..'.",
