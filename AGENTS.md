@@ -32,6 +32,9 @@ files, renders or local absolute paths into the repo or its examples; tests buil
 `tmp_path`. Real CAD/BIM/GIS model data lives outside the repo, under the workspace root the
 operator configures. Outputs of mutating tools go to `<workspace>/outputs`, never into the repo.
 
+Use open-source tooling for development, CI, and format validation. For 2DM, use QGIS/MDAL
+with synthetic fixtures and verify geometry and counts after import.
+
 ## Answers: one envelope, machine-readable codes
 
 Every tool answers with the standard envelope:

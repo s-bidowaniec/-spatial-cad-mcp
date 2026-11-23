@@ -473,6 +473,7 @@ pub fn export_dxf_slice(
     let mut after_entities = 0usize;
     let mut kept_layers: BTreeSet<String> = BTreeSet::new();
     let mut kept_extents = BBoxAcc::default();
+    // spatial-cad-review[SC-03]: Preserve required DXF dependencies or reject unsupported entities.
     let mut kept_blocks: Vec<Vec<(i32, &str)>> = Vec::new();
 
     let mut i = 0usize;

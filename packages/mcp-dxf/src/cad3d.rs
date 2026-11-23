@@ -621,6 +621,7 @@ pub fn dxf_to_mesh(
             out.push('\n');
         }
     } else {
+        // spatial-cad-review[SC-02]: Reuse the shared 2DM exporter and its format checks.
         out.push_str("MESH2D\n");
         for (i, v) in out_nodes.iter().enumerate() {
             out.push_str(&format!("ND {} {} {} {}\n", i + 1, v[0], v[1], v[2]));
@@ -1113,6 +1114,7 @@ pub fn dxf_labels_to_3d(
                 min_line_d = min_line_d.min(d);
             }
             if min_line_d <= max_distance {
+                // spatial-cad-review[SC-03]: Keep each elevation anchor at its projected chainage.
                 // Snap to nearest vertex on this line
                 let mut best_vi = 0usize;
                 let mut best_vd = f64::INFINITY;

@@ -184,6 +184,7 @@ pub fn query_features(
     }
 }
 
+// spatial-cad-review[SC-04]: Resolve the source CRS and export RFC 7946 coordinates.
 pub fn export_bbox_geojson(
     path: &Path,
     layer: Option<&str>,
@@ -472,6 +473,7 @@ fn sqlite_val_to_json(v: ValueRef<'_>) -> Value {
     }
 }
 
+// spatial-cad-review[SC-04]: Keep deterministic pages and surface row or geometry errors.
 fn query_gpkg_features(
     path: &Path,
     layer: Option<&str>,

@@ -641,6 +641,7 @@ impl MeshServer {
         Parameters(params): Parameters<MeshCutPlaneParams>,
     ) -> String {
         run_envelope("mesh_cut_plane", || {
+            // spatial-cad-review[SC-03]: Reject mixed or incomplete plane definitions.
             let plane = if let Some(z) = params.z_level {
                 if !z.is_finite() {
                     return Err(ToolError::new("invalid_input", "z_level must be finite."));
@@ -894,6 +895,7 @@ E4Q 2 1 3 4 5 2
     }
 
     #[test]
+    // spatial-cad-review[SC-07]: Add stdio coverage with independently reopened exports.
     fn diff_and_improve_flips_work_end_to_end() {
         let (dir, srv) = make_workspace("diff-flip");
         // Asymmetric convex quad (0,0)-(10,0)-(6,4)-(0,4) split along long diagonal (0,0)-(6,4)

@@ -201,6 +201,7 @@ pub fn err_json(tool: &str, err: &ToolError, started: Instant) -> String {
 }
 
 /// Run a tool body and always serialize its outcome into the standard envelope.
+// spatial-cad-review[SC-07]: Verify envelope parity on real MCP stdio requests.
 pub fn run_envelope<T: Serialize, F>(tool: &str, f: F) -> String
 where
     F: FnOnce() -> Result<(T, Option<Map<String, Value>>), ToolError>,

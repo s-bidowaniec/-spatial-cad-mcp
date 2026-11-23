@@ -27,6 +27,10 @@ from mcp_ifc import tools as t
 
 _logger = get_logger("mcp-ifc")
 
+# spatial-cad-review[SC-10]: Expose stable IFC revision references for field observations.
+# spatial-cad-review[SC-12]: Route typed transforms and dimension edits through the change plan.
+# spatial-cad-review[SC-13]: Publish opening diagnostics and keep host changes explicit.
+# spatial-cad-review[SC-14]: Report network connectivity and clash results by IFC revision.
 mcp = FastMCP(
     name="mcp-ifc",
     instructions=(

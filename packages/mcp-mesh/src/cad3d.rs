@@ -534,6 +534,7 @@ pub fn overlay_volumes_and_intersect(
         idx
     };
 
+    // spatial-cad-review[SC-03]: Verify 2.5D topology and index candidate triangle pairs.
     for ta in &tris_a {
         for tb in &tris_b {
             if ta.aabb[2] < tb.aabb[0]

@@ -29,6 +29,7 @@ from mcp_ifc.model_cache import load_ifc
 _logger = get_logger(__name__)
 
 
+# spatial-cad-review[SC-09]: Bind edits to a source revision and compare the candidate IFC.
 def _resolve_input(ifc_path: str) -> ifcopenshell.file:
     """Sandbox-resolve ``ifc_path`` and return the parsed model."""
     path = workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
@@ -43,6 +44,8 @@ def _paged(items: list[Any], limit: int, offset: int) -> Page:
         raise ToolError("invalid_input", str(exc)) from exc
 
 
+# spatial-cad-review[SC-08]: Link IFC identity, world placement and dependencies to the view.
+# spatial-cad-review[SC-11]: Use the same identities in clash and clearance results.
 def _compact_element(element: ifcopenshell.entity_instance) -> dict[str, Any]:
     """One-line JSON description of an element (no geometry)."""
     predefined_type = getattr(element, "PredefinedType", None)
@@ -163,6 +166,7 @@ def ifc_query_elements(
         )
     class_name = ifc_class.strip()
 
+    # spatial-cad-review[SC-06]: Bound regex matching and compact only the returned page.
     pattern: re.Pattern[str] | None = None
     if name_pattern is not None and name_pattern != "":
         try:
@@ -225,6 +229,7 @@ def ifc_get_psets(ifc_path: str, global_id: str) -> dict[str, Any]:
             details={"global_id": guid},
         ) from exc
 
+    # spatial-cad-review[SC-06]: Bound total response size for property-heavy elements.
     raw_psets: dict[str, dict[str, Any]] = ifcopenshell.util.element.get_psets(element)
     psets: dict[str, dict[str, Any]] = {}
     property_count = 0
