@@ -15,10 +15,16 @@ wyłącznie kod, dokumentację i syntetyczne dane testowe.
 | [SC-07](tasks/SC-07.md) | Odbiór MCP, konfiguracja klienta i regresje między formatami | SC-01–SC-06 |
 | [SC-08](tasks/SC-08.md) | Identyfikacja obiektów IFC i natywny podgląd BIM | — |
 | [SC-09](tasks/SC-09.md) | Podgląd i kontrolowany zapis zmiany IFC | SC-01, SC-08 |
-| [SC-10](tasks/SC-10.md) | Zdjęcia i głos z budowy, model działki i instalacji | SC-08, SC-09 |
+| [SC-10](tasks/SC-10.md) | Zdjęcia i głos z budowy, model działki i instalacji | SC-08, SC-09, SC-14 |
+| [SC-11](tasks/SC-11.md) | Kolizje, prześwity, pomiary i QA geometrii | SC-08 |
+| [SC-12](tasks/SC-12.md) | Nanoszenie, obracanie i zmiana wymiarów elementów | SC-09 |
+| [SC-13](tasks/SC-13.md) | Otwory, wycięcia i wypełnienia | SC-09, SC-11, SC-12 |
+| [SC-14](tasks/SC-14.md) | Instalacje, porty i odbiór w Blenderze/Bonsai | SC-11, SC-12, SC-13 |
 
 [Analiza IFC i Blendera](IFC-BLENDER.md) zawiera wynik próby przesunięcia
 komina i przepływ od zgłoszenia z budowy do modelu oraz rzutu.
+[Katalog narzędzi IFC](IFC-TOOLS.md) opisuje zakres funkcji i próby
+operacji na syntetycznej geometrii.
 
 SC-01, SC-06 i SC-08 można zacząć równolegle. Każda paczka zawiera `GEMINI.md`,
 `TASK.md`, review i źródła z jednego wskazanego commitu z zachowanym drzewem

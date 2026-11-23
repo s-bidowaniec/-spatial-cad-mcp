@@ -21,7 +21,11 @@ DEPENDENCIES = {
     "SC-07": ("SC-01", "SC-02", "SC-03", "SC-04", "SC-05", "SC-06"),
     "SC-08": (),
     "SC-09": ("SC-01", "SC-08"),
-    "SC-10": ("SC-08", "SC-09"),
+    "SC-10": ("SC-08", "SC-09", "SC-14"),
+    "SC-11": ("SC-08",),
+    "SC-12": ("SC-09",),
+    "SC-13": ("SC-09", "SC-11", "SC-12"),
+    "SC-14": ("SC-11", "SC-12", "SC-13"),
 }
 
 
@@ -92,7 +96,7 @@ def main() -> None:
     task_paths = [f"tasks/{phase}.md" for phase in DEPENDENCIES]
     docs = {
         name: read_blob(tree, f"{DOCS}/{name}")
-        for name in ("README.md", "REVIEW.md", "IFC-BLENDER.md", *task_paths)
+        for name in ("README.md", "REVIEW.md", "IFC-BLENDER.md", "IFC-TOOLS.md", *task_paths)
     }
     common = source | docs | {"inputs.txt": manifest}
 

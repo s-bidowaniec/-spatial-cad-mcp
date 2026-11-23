@@ -45,6 +45,7 @@ def _paged(items: list[Any], limit: int, offset: int) -> Page:
 
 
 # spatial-cad-review[SC-08]: Link IFC identity, world placement and dependencies to the view.
+# spatial-cad-review[SC-11]: Use the same identities in clash and clearance results.
 def _compact_element(element: ifcopenshell.entity_instance) -> dict[str, Any]:
     """One-line JSON description of an element (no geometry)."""
     predefined_type = getattr(element, "PredefinedType", None)

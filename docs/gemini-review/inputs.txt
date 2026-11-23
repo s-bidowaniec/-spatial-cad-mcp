@@ -57,3 +57,4 @@ tests/test_ifc_tools.py
 tests/test_responses.py
 tests/test_sandbox.py
 uv.lock
+tools/probe-ifc-operations.py

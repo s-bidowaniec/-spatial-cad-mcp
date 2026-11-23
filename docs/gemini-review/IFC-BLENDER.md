@@ -85,5 +85,7 @@ IFC służących do zapisu.
 Początek wdrożenia to lokalizacja i przestawienie jednego komina z
 kontrolą dachu i otworu. Następnie ten sam mechanizm rozszerzamy o
 zgłoszenia terenowe, zasilanie warstwami działki i odcinki instalacji.
+[Katalog narzędzi IFC](IFC-TOOLS.md) opisuje także kolizje, otwory,
+przekształcenia, wydłużanie i kontrole instalacji.
 
 Źródła: [IfcOpenShell edit_object_placement](https://docs.ifcopenshell.org/autoapi/ifcopenshell/api/geometry/edit_object_placement/index.html) · [Bonsai i IFC](https://docs.bonsaibim.org/) · [manifest Bonsai 0.8.0](https://github.com/IfcOpenShell/IfcOpenShell/blob/v0.8.0/src/bonsai/bonsai/blender_manifest.toml) · [QGIS](https://qgis.org/)
