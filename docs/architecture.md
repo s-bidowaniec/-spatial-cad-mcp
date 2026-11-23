@@ -24,7 +24,7 @@ being **another LLM agent** rather than a human at a GUI. Consequences:
 | --- | --- | --- |
 | IFC inspection/validation (mvp) | Python + ifcopenshell | ifcopenshell is the reference IFC library; no comparable Rust ecosystem exists yet |
 | Shared core (sandbox/envelopes/pagination/logging) | Python | ships with all Python servers |
-| DXF server (mvp) | Rust + rmcp | pure-Rust streaming ASCII DXF parser with LibreDWG crease repair, Z=0 audit, layer/entity/text queries, lossless slice export, `3DFACE->mesh`, 3D centreline, and elevation-labels to 3D |
+| DXF server (mvp) | Rust + rmcp | pure-Rust streaming ASCII DXF parser with LibreDWG crease repair, Z=0 audit, layer/entity/text queries, lossless slice export, `3DFACE->mesh`, 3D centreline, and elevation-labels to 3D; explicit format detection with structured `unsupported_format` for binary DXF and DWG (R12 binary reader remains out of MVP scope, no external deps) |
 | GIS server (mvp) | Rust + rmcp | GeoPackage via `rusqlite` + WKB decoder, GeoJSON natively, CRS sanity checks, point-in-polygon/radius queries, bbox GeoJSON export |
 | Hydrodynamic server (mvp) | Rust + rmcp | pure-Rust TELEMAC Selafin (`.slf`/`.res`), EPA SWMM (`.inp`), and SMS `.2dm` with time series, profiles, and CSV export; HEC-RAS HDF / Delft3D netCDF on roadmap |
 | Mesh server (mvp) | Rust + rmcp | pure-Rust `.2dm`/`.obj`/`.stl` loader with edge-incidence topology, watertightness, element QA, elevation/section sampling, mesh diff, greedy diagonal-flip grading, plane cutting, exact cut/fill volumes & zero-lines, DXF export, and bbox slicing |
