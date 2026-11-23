@@ -53,7 +53,7 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
    before details.
 2. Never pull raw geometry or full entity trees into your context. Use the paginated query
    tools; fetch more pages only when the task needs them.
-3. Read-only tools are separate from mutating tools. Mutators (`dxf_export_slice`, `dxf_edit_entities`, `dxf_to_mesh`,
+3. Read-only tools are separate from mutating tools. Mutators (`dxf_export_slice`, `dxf_edit_entities`, `dxf_create`, `dxf_add_entities`, `dxf_to_mesh`,
    `dxf_centerline`, `dxf_labels_to_3d`, `gis_export_bbox`, `hdm_export_slice`, `mesh_slice_bbox`,
    `mesh_improve_flips`, `mesh_cut_plane`, `mesh_volumes_intersect` with `output_dxf_name`,
    `mesh_to_dxf`) always write a **new** file under `<workspace>/outputs` and return a structured
@@ -74,7 +74,7 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
 | Group | Package | Language | Tools (bold = implemented) |
 | --- | --- | --- | --- |
 | BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_elements**, **ifc_get_psets**, **ifc_validate_required_props** |
-| CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_layers**, **dxf_query_entities**, **dxf_extract_text**, **dxf_export_slice**, **dxf_edit_entities**, **dxf_to_mesh**, **dxf_centerline**, **dxf_labels_to_3d** |
+| CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_layers**, **dxf_query_entities**, **dxf_extract_text**, **dxf_export_slice**, **dxf_edit_entities**, **dxf_create**, **dxf_add_entities**, **dxf_to_mesh**, **dxf_centerline**, **dxf_labels_to_3d** |
 | GIS | `packages/mcp-gis` | Rust (rusqlite + rmcp) | **gis_summary**, **gis_extract_schema**, **gis_query_features**, **gis_query_point**, **gis_export_bbox** |
 | HDM | `packages/mcp-hdm` | Rust (pure Rust + rmcp) | **hdm_summary**, **hdm_query_timeseries**, **hdm_query_profiles**, **hdm_export_slice** |
 | mesh | `packages/mcp-mesh` | Rust (pure Rust + rmcp) | **mesh_summary**, **mesh_query_parts**, **mesh_query_quality**, **mesh_sample_elevation**, **mesh_section_line**, **mesh_diff**, **mesh_slice_bbox**, **mesh_improve_flips**, **mesh_cut_plane**, **mesh_volumes_intersect**, **mesh_to_dxf** |

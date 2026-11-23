@@ -12,7 +12,9 @@ use crate::cad3d::{
     CenterlineReport, DxfToMeshReport, LabelsTo3dReport, compute_dxf_centerline, dxf_labels_to_3d,
     dxf_to_mesh,
 };
+use crate::create::{DxfAddEntitiesStats, DxfCreateStats, add_dxf_entities, create_dxf_entities};
 use crate::edit::{DxfEditOp, DxfEditStats, DxfSelect, edit_dxf_entities};
+use crate::writer::DxfNewEntity;
 use crate::parser::{
     BBox3D, EntityRecord, LayerDetail, TextRecord, export_dxf_slice, parse_dxf_file,
 };
@@ -277,6 +279,69 @@ struct DxfEditEntitiesData {
     output: String,
     #[serde(flatten)]
     stats: DxfEditStats,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfCreateToolParams {
+    /// Plain output file name (e.g. "from_scratch.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_dxf_name: String,
+    /// Entities to create (hard cap 200, reported via meta.limit_clamped_to).
+    pub entities: Vec<DxfNewEntity>,
+    /// AutoCAD version code (default "AC1015" / R2000).
+    #[serde(default)]
+    pub acad_version: Option<String>,
+    /// Layer names declared in TABLES (always includes "0" plus all entity layers).
+    #[serde(default)]
+    pub layers: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfAddEntitiesToolParams {
+    /// Path to the source ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub input_dxf: String,
+    /// Plain output file name written under `<workspace>/outputs/`. Must not already exist.
+    pub output_dxf_name: String,
+    /// Entities to append (hard cap 200, reported via meta.limit_clamped_to).
+    pub entities: Vec<DxfNewEntity>,
+    /// Optional task-01 selection applied to existing entities first.
+    #[serde(default)]
+    pub select: Option<DxfSelect>,
+    /// Optional task-01 edit ops applied to selected existing entities before appending.
+    #[serde(default)]
+    pub ops: Vec<DxfEditOp>,
+    /// Optional edit cap for existing entities (hard cap 200).
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DxfCreateData {
+    output: String,
+    #[serde(flatten)]
+    stats: DxfCreateStats,
+}
+
+#[derive(Debug, Serialize)]
+struct DxfAddEntitiesData {
+    dxf_path: String,
+    output: String,
+    #[serde(flatten)]
+    stats: DxfAddEntitiesStats,
+}
+
+fn validate_output_dxf_name(raw: &str) -> Result<(), ToolError> {
+    let name = raw.replace('\\', "/");
+    if name.trim().is_empty()
+        || name.contains('/')
+        || name.contains("..")
+        || !name.to_ascii_lowercase().ends_with(".dxf")
+    {
+        return Err(ToolError::new(
+            "invalid_input",
+            "output_dxf_name must be a plain .dxf file name without path separators.",
+        ));
+    }
+    Ok(())
 }
 
 #[tool_router(server_handler)]
@@ -725,6 +790,83 @@ impl DxfServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Mutating tool: create a NEW R2000 ASCII DXF from scratch under `<workspace>/outputs/<output_dxf_name>` with entities LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE3D/TEXT/POINT and declared LAYER records. Hard cap 200 entities (meta.limit_clamped_to). Refuses to overwrite existing outputs."
+    )]
+    pub fn dxf_create(
+        &self,
+        Parameters(params): Parameters<DxfCreateToolParams>,
+    ) -> String {
+        run_envelope("dxf_create", || {
+            validate_output_dxf_name(&params.output_dxf_name)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_dxf_name)
+                .map_err(ToolError::from_sandbox)?;
+            let (stats, limit_clamped_to) = create_dxf_entities(
+                &resolved_out,
+                &params.entities,
+                params.acad_version.as_deref(),
+                &params.layers,
+            )?;
+            let mut meta = Map::new();
+            if let Some(clamped) = limit_clamped_to {
+                meta.insert("limit_clamped_to".to_string(), json!(clamped));
+            }
+            Ok((
+                DxfCreateData {
+                    output: format!("outputs/{}", params.output_dxf_name),
+                    stats,
+                },
+                Some(meta),
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: copy an ASCII DXF (input never modified), optionally apply dxf_edit_entities select+ops to existing entities first, then append new entities (LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE3D/TEXT/POINT) with freshly allocated hex handles. Writes a NEW file under `<workspace>/outputs/<output_dxf_name>`; refuses to overwrite existing outputs."
+    )]
+    pub fn dxf_add_entities(
+        &self,
+        Parameters(params): Parameters<DxfAddEntitiesToolParams>,
+    ) -> String {
+        run_envelope("dxf_add_entities", || {
+            validate_output_dxf_name(&params.output_dxf_name)?;
+            let limit = match params.limit {
+                Some(l) if l <= 0 => {
+                    return Err(ToolError::new("invalid_input", "limit must be positive."));
+                }
+                Some(l) => Some(l as usize),
+                None => None,
+            };
+            let resolved_in = resolve_input_file(&self.sandbox, &params.input_dxf)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_dxf_name)
+                .map_err(ToolError::from_sandbox)?;
+            let (stats, limit_clamped_to) = add_dxf_entities(
+                &resolved_in,
+                &resolved_out,
+                &params.entities,
+                params.select.as_ref(),
+                &params.ops,
+                limit,
+            )?;
+            let mut meta = Map::new();
+            if let Some(clamped) = limit_clamped_to {
+                meta.insert("limit_clamped_to".to_string(), json!(clamped));
+            }
+            Ok((
+                DxfAddEntitiesData {
+                    dxf_path: params.input_dxf,
+                    output: format!("outputs/{}", params.output_dxf_name),
+                    stats,
+                },
+                Some(meta),
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1007,6 +1149,97 @@ mod tests {
         .unwrap();
         assert_eq!(empty_ops["ok"], false);
         assert_eq!(empty_ops["error"]["code"], "invalid_input");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dxf_create_and_add_entities_work() {
+        let (dir, srv) = make_workspace("create");
+
+        let created: Value = serde_json::from_str(&srv.dxf_create(Parameters(DxfCreateToolParams {
+            output_dxf_name: "fresh.dxf".to_string(),
+            entities: vec![
+                DxfNewEntity::Line {
+                    layer: "WALLS".to_string(),
+                    start: vec![0.0, 0.0],
+                    end: vec![10.0, 5.0],
+                    color: Some(1),
+                },
+                DxfNewEntity::Circle {
+                    layer: "WALLS".to_string(),
+                    center: vec![5.0, 5.0],
+                    radius: 2.5,
+                    color: Some(3),
+                },
+            ],
+            acad_version: None,
+            layers: vec![],
+        })))
+        .unwrap();
+        assert_eq!(created["ok"], true);
+        assert_eq!(created["data"]["created"], 2);
+        assert!(created["data"]["layers"].as_array().unwrap().iter().any(|l| l == "WALLS"));
+        assert!(dir.join("outputs/fresh.dxf").is_file());
+
+        let collision: Value = serde_json::from_str(&srv.dxf_create(Parameters(DxfCreateToolParams {
+            output_dxf_name: "fresh.dxf".to_string(),
+            entities: vec![DxfNewEntity::Point {
+                layer: "0".to_string(),
+                at: vec![0.0, 0.0],
+                color: None,
+            }],
+            acad_version: None,
+            layers: vec![],
+        })))
+        .unwrap();
+        assert_eq!(collision["ok"], false);
+        assert_eq!(collision["error"]["code"], "output_exists");
+
+        let added: Value = serde_json::from_str(&srv.dxf_add_entities(Parameters(
+            DxfAddEntitiesToolParams {
+                input_dxf: "sample.dxf".to_string(),
+                output_dxf_name: "combined.dxf".to_string(),
+                entities: vec![DxfNewEntity::Circle {
+                    layer: "NEW".to_string(),
+                    center: vec![10.0, 10.0],
+                    radius: 3.0,
+                    color: Some(4),
+                }],
+                select: Some(DxfSelect {
+                    layer: Some("road".to_string()),
+                    ..Default::default()
+                }),
+                ops: vec![DxfEditOp::Move { dx: 10.0, dy: 0.0 }],
+                limit: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(added["ok"], true);
+        assert_eq!(added["data"]["added"], 1);
+        assert_eq!(added["data"]["edited_existing"], 1);
+        assert_eq!(added["data"]["entity_type_counts_after"]["CIRCLE"], 1);
+        assert_eq!(added["data"]["entity_type_counts_before"]["LINE"], 1);
+        assert!(dir.join("outputs/combined.dxf").is_file());
+        assert!(dir.join("sample.dxf").is_file(), "input untouched");
+
+        let traversal: Value = serde_json::from_str(&srv.dxf_add_entities(Parameters(
+            DxfAddEntitiesToolParams {
+                input_dxf: "../secret.dxf".to_string(),
+                output_dxf_name: "trav.dxf".to_string(),
+                entities: vec![DxfNewEntity::Point {
+                    layer: "0".to_string(),
+                    at: vec![0.0, 0.0],
+                    color: None,
+                }],
+                select: None,
+                ops: vec![],
+                limit: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(traversal["ok"], false);
+        assert_eq!(traversal["error"]["code"], "path_traversal");
 
         let _ = fs::remove_dir_all(&dir);
     }
