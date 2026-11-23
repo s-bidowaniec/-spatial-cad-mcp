@@ -7,6 +7,10 @@
 //!   type, elevation presence, and 2D bounding box.
 //! - `dxf_extract_text` — paginated cleaned `TEXT`/`MTEXT`/`ATTRIB` annotations.
 
+use crate::cad3d::{
+    CenterlineReport, DxfToMeshReport, LabelsTo3dReport, compute_dxf_centerline, dxf_labels_to_3d,
+    dxf_to_mesh,
+};
 use crate::parser::{
     BBox3D, EntityRecord, LayerDetail, TextRecord, export_dxf_slice, parse_dxf_file,
 };
@@ -108,6 +112,89 @@ pub struct DxfExportSliceParams {
     /// Optional DXF entity type filter (e.g. "LINE", "LWPOLYLINE", "3DFACE").
     #[serde(default)]
     pub entity_type: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfToMeshParams {
+    /// Path to the source ASCII DXF file containing 3DFACE entities, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dxf_path: String,
+    /// Plain output file name (e.g. "surface.2dm" or "surface.obj") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Optional exact layer name filter (case-insensitive) for 3DFACE entities.
+    #[serde(default)]
+    pub layer: Option<String>,
+    /// XY vertex welding tolerance in drawing units (default 0.001).
+    #[serde(default)]
+    pub weld_tolerance: Option<f64>,
+    /// Maximum allowed vertical Z step at a welded XY node before rejecting (default 0.05; protects against averaging vertical walls).
+    #[serde(default)]
+    pub max_z_step: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DxfToMeshData {
+    dxf_path: String,
+    output_path: String,
+    report: DxfToMeshReport,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfCenterlineParams {
+    /// Path to the source ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dxf_path: String,
+    /// Exact layer name containing line A (case-insensitive; longest polyline on that layer is selected).
+    pub layer_a: String,
+    /// Exact layer name containing line B (case-insensitive; automatically reversed if oriented opposite to A).
+    pub layer_b: String,
+    /// Plain output DXF file name (e.g. "axis.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Pairing method: "arc_length" (default, normalized arc-length pairing) or "perpendicular" (monotone nearest projection onto B).
+    #[serde(default)]
+    pub method: Option<String>,
+    /// Position between A (0.0) and B (1.0), default 0.5 (exact midpoint in XYZ).
+    #[serde(default)]
+    pub ratio: Option<f64>,
+    /// Optional densification step in drawing units (adds intermediate vertices where spacing exceeds `step`).
+    #[serde(default)]
+    pub step: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DxfCenterlineData {
+    dxf_path: String,
+    output_path: String,
+    report: CenterlineReport,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfLabelsTo3dParams {
+    /// Path to the source ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dxf_path: String,
+    /// Exact layer name containing height labels (TEXT/MTEXT with leading elevation numbers) or 3D POINTs.
+    pub label_layer: String,
+    /// Exact layer name containing 2D LINE/LWPOLYLINE/POLYLINE entities to elevate.
+    pub line_layer: String,
+    /// Plain output DXF file name (e.g. "elevated.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Maximum 2D distance from a height label to a line to assign it (default 2.0).
+    #[serde(default)]
+    pub max_distance: Option<f64>,
+    /// Optional minimum plausible Z filter (labels below this are rejected).
+    #[serde(default)]
+    pub z_min: Option<f64>,
+    /// Optional maximum plausible Z filter (labels above this are rejected).
+    #[serde(default)]
+    pub z_max: Option<f64>,
+    /// If true, keep existing non-zero vertex Z values on the lines as additional anchors (default false).
+    #[serde(default)]
+    pub use_existing_z: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct DxfLabelsTo3dData {
+    dxf_path: String,
+    output_path: String,
+    report: LabelsTo3dReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -419,6 +506,143 @@ impl DxfServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Mutating tool: convert DXF 3DFACE entities into a welded `.2dm` or `.obj` surface mesh under `<workspace>/outputs/<output_name>`. Welds coincident XY vertices, guards against vertical Z steps, orients faces CCW, removes duplicates/degenerates, and maps layers to materials."
+    )]
+    pub fn dxf_to_mesh(&self, Parameters(params): Parameters<DxfToMeshParams>) -> String {
+        run_envelope("dxf_to_mesh", || {
+            let weld_tol = params.weld_tolerance.unwrap_or(0.001);
+            let max_z_step = params.max_z_step.unwrap_or(0.05);
+            if !weld_tol.is_finite() || weld_tol <= 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "weld_tolerance must be a positive finite number.",
+                ));
+            }
+            if !max_z_step.is_finite() || max_z_step <= 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "max_z_step must be a positive finite number.",
+                ));
+            }
+            let resolved_in = resolve_input_file(&self.sandbox, &params.dxf_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let report = dxf_to_mesh(
+                &resolved_in,
+                params.layer.as_deref(),
+                weld_tol,
+                max_z_step,
+                &resolved_out,
+            )?;
+            Ok((
+                DxfToMeshData {
+                    dxf_path: params.dxf_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    report,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: compute a 3D centreline between two DXF polylines (on `layer_a` and `layer_b`) using normalized arc-length or perpendicular pairing, interpolating XYZ and reporting width stats & pairing crossings. Writes a NEW 3D DXF under `<workspace>/outputs/<output_name>`."
+    )]
+    pub fn dxf_centerline(&self, Parameters(params): Parameters<DxfCenterlineParams>) -> String {
+        run_envelope("dxf_centerline", || {
+            let method = params.method.as_deref().unwrap_or("arc_length");
+            let ratio = params.ratio.unwrap_or(0.5);
+            if !ratio.is_finite() || !(0.0..=1.0).contains(&ratio) {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "ratio must be between 0.0 and 1.0.",
+                ));
+            }
+            if let Some(st) = params.step
+                && (!st.is_finite() || st <= 0.0)
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "step must be a positive finite number.",
+                ));
+            }
+            let resolved_in = resolve_input_file(&self.sandbox, &params.dxf_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let report = compute_dxf_centerline(
+                &resolved_in,
+                &params.layer_a,
+                &params.layer_b,
+                method,
+                ratio,
+                params.step,
+                &resolved_out,
+            )?;
+            Ok((
+                DxfCenterlineData {
+                    dxf_path: params.dxf_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    report,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: elevate 2D DXF lines (`line_layer`) to 3D polylines using elevation text labels or 3D points (`label_layer`). Snaps labels to nearest vertices within `max_distance` and linearly interpolates Z along arc length. Writes a NEW 3D DXF under `<workspace>/outputs/<output_name>`."
+    )]
+    pub fn dxf_labels_to_3d(
+        &self,
+        Parameters(params): Parameters<DxfLabelsTo3dParams>,
+    ) -> String {
+        run_envelope("dxf_labels_to_3d", || {
+            let max_dist = params.max_distance.unwrap_or(2.0);
+            if !max_dist.is_finite() || max_dist <= 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "max_distance must be a positive finite number.",
+                ));
+            }
+            if let (Some(lo), Some(hi)) = (params.z_min, params.z_max)
+                && (!lo.is_finite() || !hi.is_finite() || lo > hi)
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "z_min and z_max must be finite with z_min <= z_max.",
+                ));
+            }
+            let resolved_in = resolve_input_file(&self.sandbox, &params.dxf_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let report = dxf_labels_to_3d(
+                &resolved_in,
+                &params.label_layer,
+                &params.line_layer,
+                max_dist,
+                params.z_min,
+                params.z_max,
+                params.use_existing_z.unwrap_or(false),
+                &resolved_out,
+            )?;
+            Ok((
+                DxfLabelsTo3dData {
+                    dxf_path: params.dxf_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    report,
+                },
+                None,
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -535,6 +759,87 @@ mod tests {
         .unwrap();
         assert_eq!(missing["ok"], false);
         assert_eq!(missing["error"]["code"], "file_not_found");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cad3d_tools_to_mesh_centerline_and_labels_work() {
+        let (dir, srv) = make_workspace("cad3d");
+        let dxf = "\
+0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\n3DFACE\n8\nMAT_1_BANK\n\
+10\n0.0\n20\n0.0\n30\n10.0\n\
+11\n10.0\n21\n0.0\n31\n10.0\n\
+12\n10.0\n22\n10.0\n32\n12.0\n\
+13\n0.0\n23\n10.0\n33\n12.0\n\
+0\nPOLYLINE\n8\nEDGE_L\n66\n1\n70\n8\n\
+0\nVERTEX\n8\nEDGE_L\n10\n0.0\n20\n0.0\n30\n10.0\n\
+0\nVERTEX\n8\nEDGE_L\n10\n20.0\n20\n0.0\n30\n12.0\n\
+0\nSEQEND\n\
+0\nPOLYLINE\n8\nEDGE_R\n66\n1\n70\n8\n\
+0\nVERTEX\n8\nEDGE_R\n10\n20.0\n20\n4.0\n30\n14.0\n\
+0\nVERTEX\n8\nEDGE_R\n10\n0.0\n20\n4.0\n30\n10.0\n\
+0\nSEQEND\n\
+0\nLWPOLYLINE\n8\nPLAN_LINE\n70\n0\n\
+10\n0.0\n20\n0.0\n\
+10\n10.0\n20\n0.0\n\
+10\n20.0\n20\n0.0\n\
+0\nTEXT\n8\nELEV\n10\n0.2\n20\n0.1\n30\n0.0\n40\n1.0\n1\n100.00\n\
+0\nTEXT\n8\nELEV\n10\n19.8\n20\n0.1\n30\n0.0\n40\n1.0\n1\n102.00\n\
+0\nENDSEC\n0\nEOF\n";
+        fs::write(dir.join("cad3d.dxf"), dxf).unwrap();
+
+        let mesh_out: Value = serde_json::from_str(&srv.dxf_to_mesh(Parameters(DxfToMeshParams {
+            dxf_path: "cad3d.dxf".to_string(),
+            output_name: "from_dxf.2dm".to_string(),
+            layer: None,
+            weld_tolerance: None,
+            max_z_step: None,
+        })))
+        .unwrap();
+        assert_eq!(mesh_out["ok"], true);
+        assert_eq!(mesh_out["data"]["report"]["quad_count"], 1);
+        assert_eq!(mesh_out["data"]["report"]["node_count"], 4);
+        assert!(dir.join("outputs/from_dxf.2dm").is_file());
+
+        let cl: Value =
+            serde_json::from_str(&srv.dxf_centerline(Parameters(DxfCenterlineParams {
+                dxf_path: "cad3d.dxf".to_string(),
+                layer_a: "EDGE_L".to_string(),
+                layer_b: "EDGE_R".to_string(),
+                output_name: "center.dxf".to_string(),
+                method: Some("arc_length".to_string()),
+                ratio: Some(0.5),
+                step: Some(5.0),
+            })))
+            .unwrap();
+        assert_eq!(cl["ok"], true);
+        assert_eq!(cl["data"]["report"]["line_b_reversed"], true);
+        assert_eq!(cl["data"]["report"]["min_width"], 4.0);
+        assert_eq!(cl["data"]["report"]["pairing_crossings"], 0);
+        assert!(dir.join("outputs/center.dxf").is_file());
+
+        let lbl: Value =
+            serde_json::from_str(&srv.dxf_labels_to_3d(Parameters(DxfLabelsTo3dParams {
+                dxf_path: "cad3d.dxf".to_string(),
+                label_layer: "ELEV".to_string(),
+                line_layer: "PLAN_LINE".to_string(),
+                output_name: "elevated.dxf".to_string(),
+                max_distance: Some(1.0),
+                z_min: Some(90.0),
+                z_max: Some(110.0),
+                use_existing_z: None,
+            })))
+            .unwrap();
+        assert_eq!(lbl["ok"], true);
+        assert_eq!(lbl["data"]["report"]["output_lines_3d"], 1);
+        assert_eq!(lbl["data"]["report"]["vertices_measured"], 2);
+        assert_eq!(lbl["data"]["report"]["vertices_interpolated"], 1);
+        assert_eq!(lbl["data"]["report"]["z_min_out"], 100.0);
+        assert_eq!(lbl["data"]["report"]["z_max_out"], 102.0);
+        assert!(dir.join("outputs/elevated.dxf").is_file());
 
         let _ = fs::remove_dir_all(&dir);
     }

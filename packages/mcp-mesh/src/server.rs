@@ -11,6 +11,10 @@
 //! - `mesh_query_quality` — paginated worst or failing elements filtered by
 //!   angle thresholds, neighbor area ratio, validity flags, or 2D/3D bbox.
 
+use crate::cad3d::{
+    CutPlaneReport, MeshToDxfReport, Plane3D, VolumesIntersectReport, cut_mesh_with_plane,
+    export_mesh_to_dxf, overlay_volumes_and_intersect,
+};
 use crate::mesh::{
     BBox3D, ElevationSample, FaceQuality, MeshDiffSummary, MeshFlipReport, MeshFormat, PartSummary,
     QualitySummary, SectionSample, SectionStats, TopologySummary, analyze_mesh, diff_meshes,
@@ -162,6 +166,77 @@ struct MeshImproveFlipsData {
     height_ratio_limit: f64,
     min_angle_deg: f64,
     report: MeshFlipReport,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshCutPlaneParams {
+    /// Path to the source surface mesh (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub mesh_path: String,
+    /// Plain output DXF file name (e.g. "contour_105.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Horizontal plane elevation Z (e.g. 105.0 for a contour / waterline). Mutually exclusive with `origin`/`normal` or `points`.
+    #[serde(default)]
+    pub z_level: Option<f64>,
+    /// Plane reference point [x, y, z] (requires `normal`).
+    #[serde(default)]
+    pub origin: Option<[f64; 3]>,
+    /// Plane normal vector [nx, ny, nz] (requires `origin`).
+    #[serde(default)]
+    pub normal: Option<[f64; 3]>,
+    /// Three non-collinear 3D points [[x,y,z], [x,y,z], [x,y,z]] defining an arbitrary plane.
+    #[serde(default)]
+    pub points: Option<[[f64; 3]; 3]>,
+    /// Optional DXF output layer name (default "CUT_PLANE").
+    #[serde(default)]
+    pub layer_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshCutPlaneData {
+    mesh_path: String,
+    output_path: String,
+    report: CutPlaneReport,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshVolumesIntersectParams {
+    /// Path to surface A (existing / baseline mesh: .2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub surface_a_path: String,
+    /// Path to surface B (design / target mesh: fill where B > A, cut where B < A), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub surface_b_path: String,
+    /// Height difference tolerance below which A and B are treated as coplanar/equal (default 0.005).
+    #[serde(default)]
+    pub height_tolerance: Option<f64>,
+    /// Optional output DXF filename under `<workspace>/outputs/` to write 3D zero-lines (where zB = zA). Must not already exist.
+    #[serde(default)]
+    pub output_dxf_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshVolumesIntersectData {
+    surface_a_path: String,
+    surface_b_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_path: Option<String>,
+    report: VolumesIntersectReport,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshToDxfParams {
+    /// Path to the source surface mesh (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub mesh_path: String,
+    /// Plain output DXF file name (e.g. "terrain.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// If true (default), also write closed 3D boundary polylines on layer "BOUNDARY".
+    #[serde(default)]
+    pub include_boundary: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshToDxfData {
+    mesh_path: String,
+    output_path: String,
+    report: MeshToDxfReport,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -557,6 +632,128 @@ impl MeshServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Mutating tool: cut a 3D surface mesh (.2dm, .obj, .stl) with an arbitrary plane (horizontal `z_level`, `origin`+`normal`, or 3 `points`), chaining exact edge crossings into continuous 3D DXF polylines under `<workspace>/outputs/<output_name>`."
+    )]
+    pub fn mesh_cut_plane(
+        &self,
+        Parameters(params): Parameters<MeshCutPlaneParams>,
+    ) -> String {
+        run_envelope("mesh_cut_plane", || {
+            let plane = if let Some(z) = params.z_level {
+                if !z.is_finite() {
+                    return Err(ToolError::new("invalid_input", "z_level must be finite."));
+                }
+                Plane3D::horizontal(z)
+            } else if let (Some(o), Some(n)) = (params.origin, params.normal) {
+                if !o.iter().all(|v| v.is_finite()) || !n.iter().all(|v| v.is_finite()) {
+                    return Err(ToolError::new(
+                        "invalid_input",
+                        "origin and normal must be finite 3D vectors.",
+                    ));
+                }
+                Plane3D::from_point_normal(o, n)?
+            } else if let Some(pts) = params.points {
+                if !pts.iter().flatten().all(|v| v.is_finite()) {
+                    return Err(ToolError::new(
+                        "invalid_input",
+                        "All three plane points must be finite.",
+                    ));
+                }
+                Plane3D::from_three_points(pts[0], pts[1], pts[2])?
+            } else {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "Specify either `z_level`, `origin` + `normal`, or 3 `points`.",
+                ));
+            };
+            let resolved_in = resolve_input_file(&self.sandbox, &params.mesh_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let mesh = load_mesh_file(&resolved_in)?;
+            let layer = params.layer_name.as_deref().unwrap_or("CUT_PLANE");
+            let report = cut_mesh_with_plane(&mesh, plane, layer, &resolved_out)?;
+            Ok((
+                MeshCutPlaneData {
+                    mesh_path: params.mesh_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    report,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Exact non-rasterized cut/fill volume & surface-intersection overlay between two 3D surfaces (A = existing, B = design). Computes exact fill/cut/net volumes, areas, dz range, and zero-lines (zB = zA). When `output_dxf_name` is set, writes 3D zero-line polylines to `<workspace>/outputs/<output_dxf_name>`."
+    )]
+    pub fn mesh_volumes_intersect(
+        &self,
+        Parameters(params): Parameters<MeshVolumesIntersectParams>,
+    ) -> String {
+        run_envelope("mesh_volumes_intersect", || {
+            let tol = params.height_tolerance.unwrap_or(0.005);
+            if !tol.is_finite() || tol < 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "height_tolerance must be finite and >= 0.0.",
+                ));
+            }
+            let pa = resolve_input_file(&self.sandbox, &params.surface_a_path)?;
+            let pb = resolve_input_file(&self.sandbox, &params.surface_b_path)?;
+            let resolved_out = match params.output_dxf_name.as_deref() {
+                Some(name) => Some(
+                    self.sandbox
+                        .resolve_output(name)
+                        .map_err(ToolError::from_sandbox)?,
+                ),
+                None => None,
+            };
+            let ma = load_mesh_file(&pa)?;
+            let mb = load_mesh_file(&pb)?;
+            let report =
+                overlay_volumes_and_intersect(&ma, &mb, tol, resolved_out.as_deref())?;
+            Ok((
+                MeshVolumesIntersectData {
+                    surface_a_path: params.surface_a_path,
+                    surface_b_path: params.surface_b_path,
+                    output_path: params.output_dxf_name.map(|n| format!("outputs/{n}")),
+                    report,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: export a 3D surface mesh (.2dm, .obj, .stl) to an ASCII DXF file under `<workspace>/outputs/<output_name>` with 3DFACE entities grouped by part/material layer and optional 3D boundary polylines."
+    )]
+    pub fn mesh_to_dxf(&self, Parameters(params): Parameters<MeshToDxfParams>) -> String {
+        run_envelope("mesh_to_dxf", || {
+            let resolved_in = resolve_input_file(&self.sandbox, &params.mesh_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let mesh = load_mesh_file(&resolved_in)?;
+            let report = export_mesh_to_dxf(
+                &mesh,
+                params.include_boundary.unwrap_or(true),
+                &resolved_out,
+            )?;
+            Ok((
+                MeshToDxfData {
+                    mesh_path: params.mesh_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    report,
+                },
+                None,
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -784,6 +981,77 @@ E3T 3 4 5 1 1
         .unwrap();
         assert_eq!(dup["ok"], false);
         assert_eq!(dup["error"]["code"], "output_exists");
+
+        // Exact cut-plane, volumes/zero-line overlay, and mesh_to_dxf
+        // Surface A: flat plane at z=10 on [0,10]x[0,10] (area = 100)
+        // Surface B: tilted plane z = 8 + 0.4*x (z=8 at x=0, z=12 at x=10; crosses z=10 at x=5)
+        // Expected: fill_area = 50, cut_area = 50, fill_vol = 50*1.0 = 50, cut_vol = 50*1.0 = 50, net = 0
+        // Zero line along x=5, y=0..10 (length = 10)
+        let surf_a = "\
+MESH2D
+ND 1 0.0 0.0 10.0
+ND 2 10.0 0.0 10.0
+ND 3 10.0 10.0 10.0
+ND 4 0.0 10.0 10.0
+E4Q 1 1 2 3 4 1
+";
+        let surf_b = "\
+MESH2D
+ND 1 0.0 0.0 8.0
+ND 2 10.0 0.0 12.0
+ND 3 10.0 10.0 12.0
+ND 4 0.0 10.0 8.0
+E4Q 1 1 2 3 4 1
+";
+        fs::write(dir.join("surf_a.2dm"), surf_a).unwrap();
+        fs::write(dir.join("surf_b.2dm"), surf_b).unwrap();
+
+        let cut: Value = serde_json::from_str(&srv.mesh_cut_plane(Parameters(MeshCutPlaneParams {
+            mesh_path: "surf_b.2dm".to_string(),
+            output_name: "contour_10.dxf".to_string(),
+            z_level: Some(10.0),
+            origin: None,
+            normal: None,
+            points: None,
+            layer_name: Some("CONTOUR_10".to_string()),
+        })))
+        .unwrap();
+        assert_eq!(cut["ok"], true);
+        assert_eq!(cut["data"]["report"]["polyline_count"], 1);
+        assert_eq!(cut["data"]["report"]["total_length_3d"], 10.0);
+        assert!(dir.join("outputs/contour_10.dxf").is_file());
+
+        let vol: Value = serde_json::from_str(&srv.mesh_volumes_intersect(Parameters(
+            MeshVolumesIntersectParams {
+                surface_a_path: "surf_a.2dm".to_string(),
+                surface_b_path: "surf_b.2dm".to_string(),
+                height_tolerance: Some(0.005),
+                output_dxf_name: Some("zero_line.dxf".to_string()),
+            },
+        )))
+        .unwrap();
+        assert_eq!(vol["ok"], true);
+        assert_eq!(vol["data"]["report"]["common_area"], 100.0);
+        assert_eq!(vol["data"]["report"]["fill_area"], 50.0);
+        assert_eq!(vol["data"]["report"]["cut_area"], 50.0);
+        assert_eq!(vol["data"]["report"]["fill_volume"], 50.0);
+        assert_eq!(vol["data"]["report"]["cut_volume"], 50.0);
+        assert_eq!(vol["data"]["report"]["net_volume"], 0.0);
+        assert_eq!(vol["data"]["report"]["zero_line_count"], 1);
+        assert_eq!(vol["data"]["report"]["zero_line_length_2d"], 10.0);
+        assert!(dir.join("outputs/zero_line.dxf").is_file());
+
+        let dxf_exp: Value =
+            serde_json::from_str(&srv.mesh_to_dxf(Parameters(MeshToDxfParams {
+                mesh_path: "surf_a.2dm".to_string(),
+                output_name: "surf_a.dxf".to_string(),
+                include_boundary: Some(true),
+            })))
+            .unwrap();
+        assert_eq!(dxf_exp["ok"], true);
+        assert_eq!(dxf_exp["data"]["report"]["face_count"], 1);
+        assert_eq!(dxf_exp["data"]["report"]["boundary_loops"], 1);
+        assert!(dir.join("outputs/surf_a.dxf").is_file());
 
         let _ = fs::remove_dir_all(&dir);
     }

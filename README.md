@@ -19,11 +19,11 @@ Four basic tool groups:
 | Group | Package | Scope | Status |
 | --- | --- | --- | --- |
 | BIM | `mcp-ifc` | IFC models: summary, element queries, psets, validation | MVP (Python) |
-| CAD | `mcp-dxf` | 2D/3D ASCII DXF: summary, LibreDWG mesh repair, Z=0 audit, layer/entity/text queries, lossless slice export | MVP (Rust) |
+| CAD | `mcp-dxf` | 2D/3D ASCII DXF: summary, LibreDWG repair, Z=0 audit, queries, lossless slice, `3DFACE->mesh`, 3D centreline, height-labels to 3D | MVP (Rust) |
 | GIS | `mcp-gis` | GeoPackage (`.gpkg`) & GeoJSON: summary, CRS audit, schema, feature/point queries, bbox export | MVP (Rust) |
 | HDM | `mcp-hdm` | Open-standard HDM (TELEMAC Selafin `.slf`/`.res`, EPA SWMM `.inp`, SMS `.2dm`): summary, time series, profiles, CSV export | MVP (Rust) |
 
-plus 2D/3D mesh inspection, QA, elevation/section sampling, mesh diff, diagonal-flip improvement & bbox slicing (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
+plus 2D/3D mesh & CAD surface workflows (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl` topology, QA, elevation/sections, mesh diff, diagonal-flip grading, cut-plane contours, exact cut/fill volumes & zero-lines, DXF export, bbox slice) and the `cadctl` CLI.
 
 Monorepo layout (Python where the ecosystem is strongest, Rust everywhere else):
 
