@@ -81,6 +81,38 @@ pub fn edit_dxf_entities(
     ops: &[DxfEditOp],
     limit: Option<usize>,
 ) -> Result<(DxfEditStats, Option<usize>), ToolError> {
+    let raw = std::fs::read(input_path)
+        .map_err(|e| ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}")))?;
+    if raw.starts_with(b"AutoCAD Binary DXF") {
+        return Err(ToolError::new(
+            "unsupported_format",
+            "Binary DXF is not supported yet. Convert the drawing to ASCII DXF and retry.",
+        ));
+    }
+    let content = String::from_utf8_lossy(&raw);
+    let pairs = collect_pairs(&content)?;
+    let (out, stats, clamped) = render_edited_dxf(&pairs, select, ops, limit)?;
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ToolError::new(
+                "internal_error",
+                format!("Failed to create outputs directory: {e}"),
+            )
+        })?;
+    }
+    std::fs::write(output_path, out)
+        .map_err(|e| ToolError::new("internal_error", format!("Failed writing edited DXF: {e}")))?;
+    Ok((stats, clamped))
+}
+
+/// Render the full DXF text with `ops` applied to selected entities.
+/// Shared by `edit_dxf_entities` and `dxf_add_entities` (task 02).
+pub fn render_edited_dxf(
+    pairs: &[(i32, &str)],
+    select: &DxfSelect,
+    ops: &[DxfEditOp],
+    limit: Option<usize>,
+) -> Result<(String, DxfEditStats, Option<usize>), ToolError> {
     validate_ops(ops)?;
     let handle_range = parse_handle_range(&select.handle_from, &select.handle_to)?;
     if let Some([min_x, min_y, max_x, max_y]) = select.bbox
@@ -93,17 +125,6 @@ pub fn edit_dxf_entities(
             "bbox must satisfy finite min_x <= max_x and min_y <= max_y.",
         ));
     }
-
-    let raw = std::fs::read(input_path)
-        .map_err(|e| ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}")))?;
-    if raw.starts_with(b"AutoCAD Binary DXF") {
-        return Err(ToolError::new(
-            "unsupported_format",
-            "Binary DXF is not supported yet. Convert the drawing to ASCII DXF and retry.",
-        ));
-    }
-    let content = String::from_utf8_lossy(&raw);
-    let pairs = collect_pairs(&content)?;
 
     let (effective_limit, limit_clamped_to) = match limit {
         Some(lim) if lim > MAX_EDIT_LIMIT => (MAX_EDIT_LIMIT, Some(MAX_EDIT_LIMIT)),
@@ -143,7 +164,7 @@ pub fn edit_dxf_entities(
         }
         if in_entities && code == 0 && val != "EOF" {
             let entity_type = val.to_uppercase();
-            let end = entity_block_end(&pairs, i);
+            let end = entity_block_end(pairs, i);
             let groups: Vec<(i32, String)> = pairs[i..end]
                 .iter()
                 .map(|(c, v)| (*c, (*v).to_string()))
@@ -191,17 +212,6 @@ pub fn edit_dxf_entities(
         i += 1;
     }
 
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            ToolError::new(
-                "internal_error",
-                format!("Failed to create outputs directory: {e}"),
-            )
-        })?;
-    }
-    std::fs::write(output_path, out)
-        .map_err(|e| ToolError::new("internal_error", format!("Failed writing edited DXF: {e}")))?;
-
     let stats = DxfEditStats {
         selected,
         edited,
@@ -210,7 +220,7 @@ pub fn edit_dxf_entities(
         entity_type_counts_before: counts_before,
         entity_type_counts_after: counts_after,
     };
-    Ok((stats, limit_clamped_to))
+    Ok((out, stats, limit_clamped_to))
 }
 
 /// End index (exclusive) of the entity block starting at `start`: the next
@@ -418,7 +428,7 @@ fn format_coord(v: f64) -> String {
     format!("{clean:.6}")
 }
 
-fn validate_ops(ops: &[DxfEditOp]) -> Result<(), ToolError> {
+pub fn validate_ops(ops: &[DxfEditOp]) -> Result<(), ToolError> {
     if ops.is_empty() {
         return Err(ToolError::new(
             "invalid_input",
@@ -479,7 +489,7 @@ fn validate_ops(ops: &[DxfEditOp]) -> Result<(), ToolError> {
     Ok(())
 }
 
-fn parse_handle_range(
+pub fn parse_handle_range(
     from: &Option<String>,
     to: &Option<String>,
 ) -> Result<(Option<u64>, Option<u64>), ToolError> {

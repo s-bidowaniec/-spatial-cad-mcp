@@ -4,9 +4,11 @@
 //! Refuses to start without `MCP_CAD_WORKSPACE_ROOT` set to an existing directory.
 
 mod cad3d;
+mod create;
 mod edit;
 mod parser;
 mod server;
+mod writer;
 
 use anyhow::Result;
 use cad_sandbox::WorkspaceSandbox;
