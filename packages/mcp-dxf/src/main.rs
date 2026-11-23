@@ -4,6 +4,7 @@
 //! Refuses to start without `MCP_CAD_WORKSPACE_ROOT` set to an existing directory.
 
 mod cad3d;
+mod edit;
 mod parser;
 mod server;
 

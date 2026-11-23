@@ -839,7 +839,7 @@ pub fn parse_dxf_bytes(raw: &[u8]) -> Result<DxfDocument, ToolError> {
     })
 }
 
-fn collect_pairs(content: &str) -> Result<Vec<(i32, &str)>, ToolError> {
+pub fn collect_pairs(content: &str) -> Result<Vec<(i32, &str)>, ToolError> {
     let lines: Vec<&str> = content.lines().collect();
     if lines.len() < 2 {
         return Err(ToolError::new(
