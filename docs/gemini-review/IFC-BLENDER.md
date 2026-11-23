@@ -19,21 +19,28 @@ macierz, jednostkę, kontener i zależności. Komin może wystąpić jako
 również, czy komin i dach mają oddzielne reprezentacje. Jeśli geometrię
 połączono w jedną bryłę, potrzebna jest wcześniejsza korekta modelu.
 
-Otwór w połaci, obróbka, przewód i połączenia to osobne zależności. Otwór
-powiązany z dachem może pozostać w starym miejscu po przesunięciu komina.
-Taka zmiana jest szkicem do oceny. Operacja nie powinna sama dodawać do
-zbioru edytowanych elementów dachu ani otworów.
+Otwór w połaci, obróbka, przewód i połączenia to osobne zależności. Wariant
+„sam komin” pozostawia otwór w starym miejscu i jest szkicem do oceny.
+Wariant „komin z przejściem” obejmuje jawnie wskazany
+`IfcOpeningElement` i sprawdza jego relację z dachem. Gdy otwór wynika
+z relacji IFC, przesunięcie go odtwarza połać w starym miejscu. Gdy
+wycięcie utrwalono w bazowej bryle dachu, potrzebna jest osobna operacja
+naprawy geometrii, wyznaczona po inspekcji pliku.
 
 ## Wynik próby syntetycznej
 
 W IFC4 w milimetrach dwa obiekty `IfcChimney` miały tę samą nazwę „Komin”.
 IfcOpenShell 0.8.5 przesunął wybrany `GlobalId` z nasadą o 0,400 m
-wzdłuż osi +X modelu. Po ponownym otwarciu pliku tylko te dwa obiekty
-miały nową macierz. Orientacja i siatka dachu, drugi komin, otwór oraz
-bryła budynku pozostały takie same. Zapis był do osobnego IFC, a suma
-źródła się zgadzała. Kontrola wykryła celowo wprowadzony obrót dachu.
-Blender 4.3.2 otworzył przygotowaną geometrię obu stanów z zachowanymi
-właściwościami `GlobalId`. Rzut syntetyczny powstał z tych samych danych.
+wzdłuż osi +X modelu. W pierwszym wariancie otwór pozostał w starym
+miejscu. W drugim przesunąłem również `IfcOpeningElement` o ten sam
+wektor. Po ponownym otwarciu IFC sprawdziłem macierz i bryłę dachu przed
+odjęciem otworów oraz relację otworu z dachem. Wynikowe wycięcie przesunęło
+się pod komin, a dwa punkty kontrolne potwierdziły zamknięcie starego
+wycięcia i obecność nowego. Kontrola wykryła też celowo wprowadzony
+obrót dachu. Suma pliku źródłowego się zgadzała.
+
+Blender 4.3.2 otworzył przygotowaną geometrię przed zmianą i po przesunięciu
+komina z otworem, z właściwościami `GlobalId`. Rzut powstał z tych samych danych.
 
 Próba Blendera użyła siatek wygenerowanych przez IfcOpenShell. Bonsai nie
 był zainstalowany na hoście, a sprawdzona paczka Bonsai dla Blender 4.2+
