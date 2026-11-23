@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import ifcopenshell
@@ -25,14 +26,19 @@ from mcp_cad_core.pagination import Page, PaginationError, paginate, truncate_va
 from mcp_cad_core.responses import ToolError, ok, safe_tool
 from mcp_cad_core.sandbox import workspace_sandbox
 from mcp_ifc.model_cache import load_ifc
+from mcp_ifc.set_property import MAX_GLOBAL_IDS, set_property, validate_output_name
 
 _logger = get_logger(__name__)
 
 
+def _resolve_input_path(ifc_path: str) -> Path:
+    """Sandbox-resolve ``ifc_path`` to an existing file inside the workspace."""
+    return workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
+
+
 def _resolve_input(ifc_path: str) -> ifcopenshell.file:
     """Sandbox-resolve ``ifc_path`` and return the parsed model."""
-    path = workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
-    return load_ifc(path)
+    return load_ifc(_resolve_input_path(ifc_path))
 
 
 def _paged(items: list[Any], limit: int, offset: int) -> Page:
@@ -359,3 +365,80 @@ def _missing_required(required: list[str], psets: dict[str, dict[str, Any]]) -> 
         if not has_value:
             missing.append(prop)
     return missing
+
+
+@safe_tool
+def ifc_set_property(
+    ifc_path: str,
+    output_name: str,
+    pset: str,
+    prop: str,
+    value: str,
+    class_filter: str | None = None,
+    global_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Set one property in a Pset on selected elements, writing a NEW IFC under `outputs/`.
+
+    Mutating tool for QA fixes and tagging: the input file is never modified;
+    the edited model is written to `<workspace>/outputs/<output_name>` (plain
+    `.ifc` name, collision -> output_exists) and re-opened to validate before
+    returning ok. Requires at least one selector (`class_filter` and/or
+    `global_ids`, cap 200); a selector matching nothing answers
+    `element_not_found`. The named IfcPropertySet is found or created on each
+    element (via IfcRelDefinesByProperties) and the property is stored as
+    IfcInteger/IfcReal when the value parses as a number, else IfcText.
+
+    Args:
+        ifc_path: Path to the source .ifc file, relative to the workspace root.
+        output_name: Plain `.ifc` file name for the new file under `outputs/`.
+        pset: Property set name, e.g. "Pset_WallCommon".
+        prop: Property name, e.g. "FireRating".
+        value: New value as a string ("2.5" becomes IfcReal, "42" IfcInteger,
+            otherwise IfcText; long values are truncated).
+        class_filter: Optional IFC class selector, e.g. "IfcWall".
+        global_ids: Optional GlobalId selector (cap 200, clamped with
+            meta.limit_clamped_to).
+
+    Returns:
+        Envelope with data: output, elements_matched, properties_set, and
+        changes (per-element global_id/pset/prop/old/new, capped at 200 with
+        meta.changes_capped_to).
+    """
+    cls = class_filter.strip() if class_filter and class_filter.strip() else None
+    gids = [g.strip() for g in (global_ids or []) if g and g.strip()]
+    if not cls and not gids:
+        raise ToolError(
+            "invalid_input",
+            "At least one selector (class_filter or global_ids) is required.",
+        )
+    if not pset or not pset.strip():
+        raise ToolError("invalid_input", "pset must be a non-empty string.")
+    if not prop or not prop.strip():
+        raise ToolError("invalid_input", "prop must be a non-empty string.")
+
+    name = validate_output_name(output_name)
+    input_path = _resolve_input_path(ifc_path)
+    output_path = workspace_sandbox().resolve_output(name)
+
+    limit_clamped_to: int | None = None
+    if len(gids) > MAX_GLOBAL_IDS:
+        gids = gids[:MAX_GLOBAL_IDS]
+        limit_clamped_to = MAX_GLOBAL_IDS
+
+    data, changes_capped = set_property(
+        input_path,
+        output_path,
+        pset=pset,
+        prop=prop,
+        value=value,
+        class_filter=cls,
+        global_ids=gids,
+    )
+    data["ifc_path"] = ifc_path
+    meta: dict[str, Any] = {}
+    if limit_clamped_to is not None:
+        meta["limit_clamped_to"] = limit_clamped_to
+    if changes_capped:
+        meta["changes_capped_to"] = 200
+        meta["note"] = "changes list truncated to 200 entries"
+    return ok(data, meta=meta)
