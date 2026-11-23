@@ -12,9 +12,9 @@
 //!   angle thresholds, neighbor area ratio, validity flags, or 2D/3D bbox.
 
 use crate::mesh::{
-    BBox3D, ElevationSample, FaceQuality, MeshFormat, PartSummary, QualitySummary, SectionSample,
-    SectionStats, TopologySummary, analyze_mesh, load_mesh_file, sample_elevations,
-    sample_section_line, write_bbox_slice,
+    BBox3D, ElevationSample, FaceQuality, MeshDiffSummary, MeshFlipReport, MeshFormat, PartSummary,
+    QualitySummary, SectionSample, SectionStats, TopologySummary, analyze_mesh, diff_meshes,
+    improve_mesh_flips, load_mesh_file, sample_elevations, sample_section_line, write_bbox_slice,
 };
 use cad_envelope::{ToolError, paginate, resolve_input_file, run_envelope};
 use cad_sandbox::WorkspaceSandbox;
@@ -115,6 +115,53 @@ struct MeshSectionLineData {
     end: [f64; 2],
     stats: SectionStats,
     profile: Vec<SectionSample>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshDiffParams {
+    /// Path to the baseline ("before") mesh (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub before_path: String,
+    /// Path to the updated ("after") mesh (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub after_path: String,
+    /// XY coordinate matching tolerance for vertex elevation comparison (default 0.001).
+    #[serde(default)]
+    pub xy_tolerance: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshDiffData {
+    before_path: String,
+    after_path: String,
+    diff: MeshDiffSummary,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshImproveFlipsParams {
+    /// Path to the source mesh (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub mesh_path: String,
+    /// Plain output file name (e.g. "improved.2dm" or "improved.obj") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Target maximum neighbor element height ratio before triggering diagonal flips (default 1.5, must be > 1.0).
+    #[serde(default)]
+    pub height_ratio_limit: Option<f64>,
+    /// Minimum interior angle in degrees enforced for flipped triangles (default 20.0, range 1.0..=55.0).
+    #[serde(default)]
+    pub min_angle_deg: Option<f64>,
+    /// Minimum allowed length of a newly created flipped diagonal edge (default 0.0).
+    #[serde(default)]
+    pub min_edge_length: Option<f64>,
+    /// Maximum greedy flip passes (default 5, range 1..=20).
+    #[serde(default)]
+    pub max_rounds: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshImproveFlipsData {
+    mesh_path: String,
+    output_path: String,
+    height_ratio_limit: f64,
+    min_angle_deg: f64,
+    report: MeshFlipReport,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -425,6 +472,91 @@ impl MeshServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Read-only structured diff between two surface meshes (before_path vs after_path): vertex/face count deltas, XY-matched elevation change stats (min/max/mean_abs dz), and added/removed/modified face IDs."
+    )]
+    pub fn mesh_diff(&self, Parameters(params): Parameters<MeshDiffParams>) -> String {
+        run_envelope("mesh_diff", || {
+            let tol = params.xy_tolerance.unwrap_or(1e-3);
+            if !tol.is_finite() || tol <= 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "xy_tolerance must be a positive finite number.",
+                ));
+            }
+            let p_before = resolve_input_file(&self.sandbox, &params.before_path)?;
+            let p_after = resolve_input_file(&self.sandbox, &params.after_path)?;
+            let m_before = load_mesh_file(&p_before)?;
+            let m_after = load_mesh_file(&p_after)?;
+            let diff = diff_meshes(&m_before, &m_after, tol);
+            Ok((
+                MeshDiffData {
+                    before_path: params.before_path,
+                    after_path: params.after_path,
+                    diff,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: greedy diagonal edge-flipping on interior triangle pairs to reduce neighbor height-ratio spikes while preserving outer & material/part boundaries, convexity, and min angle. Writes a NEW `.2dm` or `.obj` under `<workspace>/outputs/<output_name>` with a before/after QA report."
+    )]
+    pub fn mesh_improve_flips(
+        &self,
+        Parameters(params): Parameters<MeshImproveFlipsParams>,
+    ) -> String {
+        run_envelope("mesh_improve_flips", || {
+            let limit = params.height_ratio_limit.unwrap_or(1.5);
+            let min_ang = params.min_angle_deg.unwrap_or(20.0);
+            let min_edge = params.min_edge_length.unwrap_or(0.0);
+            let rounds = params.max_rounds.unwrap_or(5);
+            if !limit.is_finite() || limit <= 1.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "height_ratio_limit must be finite and strictly greater than 1.0.",
+                ));
+            }
+            if !min_ang.is_finite() || !(1.0..=55.0).contains(&min_ang) {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "min_angle_deg must be between 1.0 and 55.0.",
+                ));
+            }
+            if !min_edge.is_finite() || min_edge < 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "min_edge_length must be finite and >= 0.0.",
+                ));
+            }
+            if !(1..=20).contains(&rounds) {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "max_rounds must be between 1 and 20.",
+                ));
+            }
+            let resolved_in = resolve_input_file(&self.sandbox, &params.mesh_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let mesh = load_mesh_file(&resolved_in)?;
+            let report =
+                improve_mesh_flips(&mesh, limit, min_ang, min_edge, rounds, &resolved_out)?;
+            Ok((
+                MeshImproveFlipsData {
+                    mesh_path: params.mesh_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    height_ratio_limit: limit,
+                    min_angle_deg: min_ang,
+                    report,
+                },
+                None,
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -560,6 +692,98 @@ E4Q 2 1 3 4 5 2
         .unwrap();
         assert_eq!(trav["ok"], false);
         assert_eq!(trav["error"]["code"], "path_traversal");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diff_and_improve_flips_work_end_to_end() {
+        let (dir, srv) = make_workspace("diff-flip");
+        // Asymmetric convex quad (0,0)-(10,0)-(6,4)-(0,4) split along long diagonal (0,0)-(6,4)
+        // creates two triangles with unequal heights; flipping to (10,0)-(0,4) or testing a
+        // 3-triangle patch with a sharp height-ratio jump triggers a flip.
+        let before_2dm = "\
+MESH2D
+ND 1 0.0 0.0 10.0
+ND 2 10.0 0.0 10.0
+ND 3 10.0 6.0 10.0
+ND 4 0.0 6.0 10.0
+ND 5 3.0 3.0 10.0
+E3T 1 1 2 5 1
+E3T 2 2 3 5 1
+E3T 3 3 4 5 1
+E3T 4 4 1 5 1
+";
+        // Same topology, node 5 raised by +1.5 m
+        let after_2dm = "\
+MESH2D
+ND 1 0.0 0.0 10.0
+ND 2 10.0 0.0 10.0
+ND 3 10.0 6.0 10.0
+ND 4 0.0 6.0 10.0
+ND 5 3.0 3.0 11.5
+E3T 1 1 2 5 1
+E3T 2 2 3 5 1
+E3T 3 3 4 5 1
+E3T 4 4 1 5 1
+";
+        fs::write(dir.join("before.2dm"), before_2dm).unwrap();
+        fs::write(dir.join("after.2dm"), after_2dm).unwrap();
+
+        let d: Value = serde_json::from_str(&srv.mesh_diff(Parameters(MeshDiffParams {
+            before_path: "before.2dm".to_string(),
+            after_path: "after.2dm".to_string(),
+            xy_tolerance: None,
+        })))
+        .unwrap();
+        assert_eq!(d["ok"], true);
+        assert_eq!(d["data"]["diff"]["matched_xy_vertices"], 5);
+        assert_eq!(d["data"]["diff"]["changed_z_vertices"], 1);
+        assert_eq!(d["data"]["diff"]["max_dz"], 1.5);
+        assert_eq!(d["data"]["diff"]["modified_faces"], 4);
+
+        // Two-triangle strip next to a large triangle: splitting the convex quad (0,0)-(4,0)-(4,4)-(0,4)
+        // along (0,0)-(4,4) vs (4,0)-(0,4) next to big triangle (0,0)-(0,4)-(-10,2)
+        let flip_src = "\
+MESH2D
+ND 1 0.0 0.0 0.0
+ND 2 6.0 0.0 0.0
+ND 3 6.0 6.0 0.0
+ND 4 0.0 6.0 0.0
+ND 5 1.5 3.0 0.0
+E3T 1 1 2 3 1
+E3T 2 1 3 4 1
+E3T 3 4 5 1 1
+";
+        fs::write(dir.join("flip_in.2dm"), flip_src).unwrap();
+        let fl: Value = serde_json::from_str(&srv.mesh_improve_flips(Parameters(
+            MeshImproveFlipsParams {
+                mesh_path: "flip_in.2dm".to_string(),
+                output_name: "flipped.2dm".to_string(),
+                height_ratio_limit: Some(1.3),
+                min_angle_deg: Some(15.0),
+                min_edge_length: None,
+                max_rounds: Some(5),
+            },
+        )))
+        .unwrap();
+        assert_eq!(fl["ok"], true);
+        assert!(dir.join("outputs/flipped.2dm").is_file());
+
+        // Refuses overwrite
+        let dup: Value = serde_json::from_str(&srv.mesh_improve_flips(Parameters(
+            MeshImproveFlipsParams {
+                mesh_path: "flip_in.2dm".to_string(),
+                output_name: "flipped.2dm".to_string(),
+                height_ratio_limit: Some(1.3),
+                min_angle_deg: Some(15.0),
+                min_edge_length: None,
+                max_rounds: Some(5),
+            },
+        )))
+        .unwrap();
+        assert_eq!(dup["ok"], false);
+        assert_eq!(dup["error"]["code"], "output_exists");
 
         let _ = fs::remove_dir_all(&dir);
     }

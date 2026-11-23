@@ -11,8 +11,8 @@
 //!   a new `.geojson` file under `<root>/outputs` and returns a structured diff.
 
 use crate::dataset::{
-    FeatureSummary, GisFormat, LayerSchema, LayerSummary, export_bbox_geojson, extract_schema,
-    query_features, summarize_dataset,
+    FeatureSummary, GisFormat, LayerSchema, LayerSummary, PointMatchSummary, export_bbox_geojson,
+    extract_schema, query_features, query_features_by_point, summarize_dataset,
 };
 use cad_envelope::{
     MAX_VALUE_CHARS, ToolError, paginate, resolve_input_file, run_envelope, truncate_value,
@@ -71,6 +71,35 @@ pub struct GisQueryFeaturesParams {
     /// Zero-based pagination offset (default 0).
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct GisQueryPointParams {
+    /// Path to the GIS dataset (.gpkg, .geojson, .json), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dataset_path: String,
+    /// Query point [x, y] in the dataset's coordinate system.
+    pub xy: [f64; 2],
+    /// Search radius around `xy` in dataset units (default 0.0 = exact containment / hit only).
+    #[serde(default)]
+    pub radius: Option<f64>,
+    /// Optional layer name (defaults to the first feature layer).
+    #[serde(default)]
+    pub layer: Option<String>,
+    /// Page size (default 50, hard cap 200).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Zero-based pagination offset (default 0).
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct GisQueryPointData {
+    dataset_path: String,
+    layer: String,
+    xy: [f64; 2],
+    radius: f64,
+    matches: Vec<PointMatchSummary>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -257,6 +286,67 @@ impl GisServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Read-only spatial point query on a GIS dataset (.gpkg, .geojson): finds features containing [x, y] (exact point-in-polygon with hole rings) or within `radius` (sorted by containment, then distance). Paginated (hard cap 200)."
+    )]
+    pub fn gis_query_point(
+        &self,
+        Parameters(params): Parameters<GisQueryPointParams>,
+    ) -> String {
+        run_envelope("gis_query_point", || {
+            if !params.xy.iter().all(|v| v.is_finite()) {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "xy must be finite [x, y] coordinates.",
+                ));
+            }
+            let radius = params.radius.unwrap_or(0.0);
+            if !radius.is_finite() || radius < 0.0 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "radius must be a finite number >= 0.0.",
+                ));
+            }
+            let resolved = resolve_input_file(&self.sandbox, &params.dataset_path)?;
+            let (layer_name, mut matches) = query_features_by_point(
+                &resolved,
+                params.layer.as_deref(),
+                params.xy,
+                radius,
+            )?;
+
+            let mut truncated_values = 0usize;
+            for m in &mut matches {
+                for val in m.properties.values_mut() {
+                    if let Value::String(s) = val {
+                        let (clipped, was) = truncate_value(s, MAX_VALUE_CHARS);
+                        if was {
+                            truncated_values += 1;
+                            *s = clipped;
+                        }
+                    }
+                }
+            }
+
+            let page = paginate(&matches, params.limit, params.offset)?;
+            let mut meta = Map::new();
+            meta.insert("pagination".to_string(), page.meta_value());
+            if truncated_values > 0 {
+                meta.insert("truncated_values".to_string(), json!(truncated_values));
+            }
+            Ok((
+                GisQueryPointData {
+                    dataset_path: params.dataset_path,
+                    layer: layer_name,
+                    xy: params.xy,
+                    radius,
+                    matches: page.items,
+                },
+                Some(meta),
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -333,6 +423,82 @@ mod tests {
             .unwrap();
         assert_eq!(dup["ok"], false);
         assert_eq!(dup["error"]["code"], "output_exists");
+
+        // Spatial point-in-polygon (with hole ring) and radius search
+        let poly_gj = json!({
+            "type": "FeatureCollection",
+            "name": "zones",
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": 10,
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]],
+                            [[4.0, 4.0], [6.0, 4.0], [6.0, 6.0], [4.0, 6.0], [4.0, 4.0]]
+                        ]
+                    },
+                    "properties": {"zone": "ring"}
+                },
+                {
+                    "type": "Feature",
+                    "id": 20,
+                    "geometry": {"type": "Point", "coordinates": [12.0, 5.0]},
+                    "properties": {"zone": "marker"}
+                }
+            ]
+        });
+        fs::write(dir.join("zones.geojson"), poly_gj.to_string()).unwrap();
+
+        // Point inside exterior ring & outside hole -> contains=true, distance=0
+        let hit: Value = serde_json::from_str(&srv.gis_query_point(Parameters(
+            GisQueryPointParams {
+                dataset_path: "zones.geojson".to_string(),
+                xy: [2.0, 2.0],
+                radius: Some(0.0),
+                layer: None,
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )))
+        .unwrap();
+        assert_eq!(hit["ok"], true);
+        assert_eq!(hit["data"]["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(hit["data"]["matches"][0]["fid"], 10);
+        assert_eq!(hit["data"]["matches"][0]["contains"], true);
+
+        // Point inside hole -> NOT contained at radius=0
+        let hole: Value = serde_json::from_str(&srv.gis_query_point(Parameters(
+            GisQueryPointParams {
+                dataset_path: "zones.geojson".to_string(),
+                xy: [5.0, 5.0],
+                radius: Some(0.0),
+                layer: None,
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )))
+        .unwrap();
+        assert_eq!(hole["ok"], true);
+        assert_eq!(hole["data"]["matches"].as_array().unwrap().len(), 0);
+
+        // Radius search near (11.5, 5.0) with radius=2.0 hits both marker (d=0.5) and polygon edge (d=1.5)
+        let near: Value = serde_json::from_str(&srv.gis_query_point(Parameters(
+            GisQueryPointParams {
+                dataset_path: "zones.geojson".to_string(),
+                xy: [11.5, 5.0],
+                radius: Some(2.0),
+                layer: None,
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )))
+        .unwrap();
+        assert_eq!(near["ok"], true);
+        assert_eq!(near["data"]["matches"].as_array().unwrap().len(), 2);
+        assert_eq!(near["data"]["matches"][0]["fid"], 20);
+        assert_eq!(near["data"]["matches"][1]["fid"], 10);
 
         let _ = fs::remove_dir_all(&dir);
     }

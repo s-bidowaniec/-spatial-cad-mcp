@@ -1091,6 +1091,255 @@ fn read_wkb(
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PointMatchSummary {
+    pub fid: i64,
+    pub layer: String,
+    pub geometry_type: String,
+    pub contains: bool,
+    pub distance: f64,
+    pub bbox: Option<BBox2D>,
+    pub properties: Map<String, Value>,
+}
+
+/// Spatial point query on a GeoPackage or GeoJSON layer: finds features
+/// containing `xy` (exact point-in-polygon with hole rings) or within `radius`.
+pub fn query_features_by_point(
+    path: &Path,
+    layer: Option<&str>,
+    xy: [f64; 2],
+    radius: f64,
+) -> Result<(String, Vec<PointMatchSummary>), ToolError> {
+    let search_bbox = [xy[0] - radius, xy[1] - radius, xy[0] + radius, xy[1] + radius];
+    let (layer_name, mut matches) = match detect_format(path)? {
+        GisFormat::Geopackage => {
+            let (lname, _, feats) = collect_gpkg_geojson_features(path, layer, search_bbox)?;
+            let mut out = Vec::new();
+            for feat in feats {
+                if let Some(m) = eval_geojson_point_match(&feat, &lname, xy, radius) {
+                    out.push(m);
+                }
+            }
+            (lname, out)
+        }
+        GisFormat::Geojson => {
+            let (lname, feats) = load_geojson_features(path)?;
+            let mut out = Vec::new();
+            for (idx, mut feat) in feats.into_iter().enumerate() {
+                if feat.get("id").is_none()
+                    && let Some(obj) = feat.as_object_mut()
+                {
+                    obj.insert("id".to_string(), json!((idx + 1) as i64));
+                }
+                if let Some(m) = eval_geojson_point_match(&feat, &lname, xy, radius) {
+                    out.push(m);
+                }
+            }
+            (lname, out)
+        }
+    };
+
+    matches.sort_by(|a, b| {
+        b.contains
+            .cmp(&a.contains)
+            .then_with(|| a.distance.total_cmp(&b.distance))
+            .then_with(|| a.fid.cmp(&b.fid))
+    });
+    Ok((layer_name, matches))
+}
+
+fn eval_geojson_point_match(
+    feat: &Value,
+    layer: &str,
+    xy: [f64; 2],
+    radius: f64,
+) -> Option<PointMatchSummary> {
+    let geom = feat.get("geometry")?;
+    if geom.is_null() {
+        return None;
+    }
+    let (gtype, _, _, gbbox) = inspect_geojson_geom(geom);
+    let gb = gbbox?;
+    let search_bbox = [xy[0] - radius, xy[1] - radius, xy[0] + radius, xy[1] + radius];
+    if !bbox_intersects(gb, search_bbox) {
+        return None;
+    }
+    let (contains, dist) = geom_point_distance(geom, xy)?;
+    if !contains && dist > radius + 1e-9 {
+        return None;
+    }
+    let fid = feat.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+    let props = feat
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+    Some(PointMatchSummary {
+        fid,
+        layer: layer.to_string(),
+        geometry_type: gtype,
+        contains,
+        distance: round6(dist),
+        bbox: Some(gb),
+        properties: props,
+    })
+}
+
+fn parse_xy(v: &Value) -> Option<[f64; 2]> {
+    let arr = v.as_array()?;
+    if arr.len() >= 2 {
+        Some([arr[0].as_f64()?, arr[1].as_f64()?])
+    } else {
+        None
+    }
+}
+
+fn parse_ring(v: &Value) -> Vec<[f64; 2]> {
+    v.as_array()
+        .map(|arr| arr.iter().filter_map(parse_xy).collect())
+        .unwrap_or_default()
+}
+
+fn dist_pt_seg(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    let l2 = dx * dx + dy * dy;
+    if l2 <= 1e-24 {
+        return (p[0] - a[0]).hypot(p[1] - a[1]);
+    }
+    let t = (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0);
+    let px = a[0] + t * dx;
+    let py = a[1] + t * dy;
+    (p[0] - px).hypot(p[1] - py)
+}
+
+fn dist_pt_polyline(p: [f64; 2], pts: &[[f64; 2]], closed: bool) -> f64 {
+    if pts.is_empty() {
+        return f64::INFINITY;
+    }
+    if pts.len() == 1 {
+        return (p[0] - pts[0][0]).hypot(p[1] - pts[0][1]);
+    }
+    let mut best = f64::INFINITY;
+    for w in pts.windows(2) {
+        best = best.min(dist_pt_seg(p, w[0], w[1]));
+    }
+    if closed && pts.len() >= 3 {
+        best = best.min(dist_pt_seg(p, pts[pts.len() - 1], pts[0]));
+    }
+    best
+}
+
+fn point_in_ring(p: [f64; 2], ring: &[[f64; 2]]) -> bool {
+    if ring.len() < 3 {
+        return false;
+    }
+    if dist_pt_polyline(p, ring, true) <= 1e-9 {
+        return true;
+    }
+    let mut inside = false;
+    let mut j = ring.len() - 1;
+    for i in 0..ring.len() {
+        let (xi, yi) = (ring[i][0], ring[i][1]);
+        let (xj, yj) = (ring[j][0], ring[j][1]);
+        let intersects = ((yi > p[1]) != (yj > p[1]))
+            && (p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi);
+        if intersects {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+fn polygon_point_distance(rings_val: &Value, p: [f64; 2]) -> Option<(bool, f64)> {
+    let rings_arr = rings_val.as_array()?;
+    if rings_arr.is_empty() {
+        return None;
+    }
+    let outer = parse_ring(&rings_arr[0]);
+    if outer.len() < 3 {
+        return None;
+    }
+    let mut inside = point_in_ring(p, &outer);
+    let mut best_d = dist_pt_polyline(p, &outer, true);
+    for hole_val in &rings_arr[1..] {
+        let hole = parse_ring(hole_val);
+        if hole.len() >= 3 {
+            best_d = best_d.min(dist_pt_polyline(p, &hole, true));
+            if inside && point_in_ring(p, &hole) && dist_pt_polyline(p, &hole, true) > 1e-9 {
+                inside = false;
+            }
+        }
+    }
+    if inside {
+        Some((true, 0.0))
+    } else {
+        Some((false, best_d))
+    }
+}
+
+fn geom_point_distance(geom: &Value, p: [f64; 2]) -> Option<(bool, f64)> {
+    let gtype = geom.get("type")?.as_str()?;
+    let coords = geom.get("coordinates");
+    match gtype {
+        "Point" => {
+            let q = parse_xy(coords?)?;
+            let d = (p[0] - q[0]).hypot(p[1] - q[1]);
+            Some((d <= 1e-9, d))
+        }
+        "MultiPoint" => {
+            let pts = parse_ring(coords?);
+            let best = pts
+                .iter()
+                .map(|q| (p[0] - q[0]).hypot(p[1] - q[1]))
+                .fold(f64::INFINITY, f64::min);
+            best.is_finite().then_some((best <= 1e-9, best))
+        }
+        "LineString" => {
+            let pts = parse_ring(coords?);
+            let d = dist_pt_polyline(p, &pts, false);
+            d.is_finite().then_some((d <= 1e-9, d))
+        }
+        "MultiLineString" => {
+            let arr = coords?.as_array()?;
+            let best = arr
+                .iter()
+                .map(|line| dist_pt_polyline(p, &parse_ring(line), false))
+                .fold(f64::INFINITY, f64::min);
+            best.is_finite().then_some((best <= 1e-9, best))
+        }
+        "Polygon" => polygon_point_distance(coords?, p),
+        "MultiPolygon" => {
+            let arr = coords?.as_array()?;
+            let mut best = f64::INFINITY;
+            for poly in arr {
+                if let Some((inside, d)) = polygon_point_distance(poly, p) {
+                    if inside {
+                        return Some((true, 0.0));
+                    }
+                    best = best.min(d);
+                }
+            }
+            best.is_finite().then_some((false, best))
+        }
+        "GeometryCollection" => {
+            let arr = geom.get("geometries")?.as_array()?;
+            let mut best = f64::INFINITY;
+            for sub in arr {
+                if let Some((inside, d)) = geom_point_distance(sub, p) {
+                    if inside {
+                        return Some((true, 0.0));
+                    }
+                    best = best.min(d);
+                }
+            }
+            best.is_finite().then_some((false, best))
+        }
+        _ => None,
+    }
+}
+
 // ---------- Helpers ----------
 
 #[derive(Default)]

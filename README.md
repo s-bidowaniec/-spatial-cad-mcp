@@ -20,10 +20,10 @@ Four basic tool groups:
 | --- | --- | --- | --- |
 | BIM | `mcp-ifc` | IFC models: summary, element queries, psets, validation | MVP (Python) |
 | CAD | `mcp-dxf` | 2D/3D ASCII DXF: summary, LibreDWG mesh repair, Z=0 audit, layer/entity/text queries, lossless slice export | MVP (Rust) |
-| GIS | `mcp-gis` | GeoPackage (`.gpkg`) & GeoJSON: summary, CRS audit, schema, feature queries, bbox export | MVP (Rust) |
+| GIS | `mcp-gis` | GeoPackage (`.gpkg`) & GeoJSON: summary, CRS audit, schema, feature/point queries, bbox export | MVP (Rust) |
 | HDM | `mcp-hdm` | Open-standard HDM (TELEMAC Selafin `.slf`/`.res`, EPA SWMM `.inp`, SMS `.2dm`): summary, time series, profiles, CSV export | MVP (Rust) |
 
-plus 2D/3D mesh inspection, QA, elevation sampling, cross-section lines & bbox slicing (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
+plus 2D/3D mesh inspection, QA, elevation/section sampling, mesh diff, diagonal-flip improvement & bbox slicing (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
 
 Monorepo layout (Python where the ecosystem is strongest, Rust everywhere else):
 
@@ -101,8 +101,8 @@ server. `cad-sandbox` is the Rust twin of the Python sandbox and is shared by al
 
 - Compact, deterministic, context-safe responses; large data is paginated (limit cap: 200).
 - Read-only tools are separate from mutating tools; mutators (`dxf_export_slice`, `gis_export_bbox`,
-  `hdm_export_slice`, `mesh_slice_bbox`) always write a **new** file under `<workspace>/outputs`
-  and return a structured diff - never modify inputs.
+  `hdm_export_slice`, `mesh_slice_bbox`, `mesh_improve_flips`) always write a **new** file under
+  `<workspace>/outputs` and return a structured diff - never modify inputs.
 - All paths resolve inside `MCP_CAD_WORKSPACE_ROOT`; `..` traversal, outside-absolute paths and
   symlink escapes are rejected with machine-readable error codes.
 - Logging goes to **stderr only**; stdout is reserved for the MCP stdio transport.

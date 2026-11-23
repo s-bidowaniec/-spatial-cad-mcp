@@ -3,7 +3,7 @@
 
 use cad_envelope::ToolError;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1098,6 +1098,72 @@ pub fn sample_section_line(
     (stats, out)
 }
 
+/// Write a `Mesh` to a `.2dm` or `.obj` file.
+fn write_mesh_file(mesh: &Mesh, output_path: &Path) -> Result<(), ToolError> {
+    let ext = output_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+
+    let mut out = String::new();
+    if ext == "2dm" {
+        out.push_str("MESH2D\n");
+        for (i, v) in mesh.vertices.iter().enumerate() {
+            out.push_str(&format!("ND {} {} {} {}\n", i + 1, v[0], v[1], v[2]));
+        }
+        for (idx, face) in mesh.faces.iter().enumerate() {
+            let mat: i64 = face
+                .part
+                .strip_prefix("material_")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1);
+            if face.verts.len() == 3 {
+                out.push_str(&format!(
+                    "E3T {} {} {} {} {}\n",
+                    idx + 1,
+                    face.verts[0] + 1,
+                    face.verts[1] + 1,
+                    face.verts[2] + 1,
+                    mat
+                ));
+            } else if face.verts.len() == 4 {
+                out.push_str(&format!(
+                    "E4Q {} {} {} {} {} {}\n",
+                    idx + 1,
+                    face.verts[0] + 1,
+                    face.verts[1] + 1,
+                    face.verts[2] + 1,
+                    face.verts[3] + 1,
+                    mat
+                ));
+            }
+        }
+    } else {
+        out.push_str("# Exported by spatial-cad-mcp (mcp-mesh)\n");
+        for v in &mesh.vertices {
+            out.push_str(&format!("v {} {} {}\n", v[0], v[1], v[2]));
+        }
+        let mut last_part = String::new();
+        for face in &mesh.faces {
+            if face.part != last_part {
+                out.push_str(&format!("g {}\n", face.part));
+                last_part = face.part.clone();
+            }
+            out.push('f');
+            for &vi in &face.verts {
+                out.push_str(&format!(" {}", vi + 1));
+            }
+            out.push('\n');
+        }
+    }
+
+    std::fs::write(output_path, out).map_err(|e| {
+        ToolError::new("internal_error", format!("Failed writing mesh output: {e}"))
+    })?;
+    Ok(())
+}
+
 /// Slice a mesh by 2D XY bbox `[min_x, min_y, max_x, max_y]`, compacting
 /// referenced vertices and writing a new `.2dm` or `.obj` file.
 pub fn write_bbox_slice(
@@ -1133,70 +1199,454 @@ pub fn write_bbox_slice(
             });
             mapped.push(new_idx);
         }
-        kept_faces.push((face.id, mapped, face.part.clone()));
+        kept_faces.push(Face {
+            id: face.id,
+            verts: mapped,
+            part: face.part.clone(),
+        });
     }
 
-    let ext = output_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
+    let sliced = Mesh {
+        format: mesh.format,
+        vertices: new_verts,
+        faces: kept_faces,
+    };
+    write_mesh_file(&sliced, output_path)?;
+    Ok((sliced.vertices.len(), sliced.faces.len()))
+}
 
-    let mut out = String::new();
-    if ext == "2dm" {
-        out.push_str("MESH2D\n");
-        for (i, v) in new_verts.iter().enumerate() {
-            out.push_str(&format!("ND {} {} {} {}\n", i + 1, v[0], v[1], v[2]));
+#[derive(Debug, Clone, Serialize)]
+pub struct MeshDiffSummary {
+    pub before_vertices: usize,
+    pub after_vertices: usize,
+    pub delta_vertices: i64,
+    pub before_faces: usize,
+    pub after_faces: usize,
+    pub delta_faces: i64,
+    pub matched_xy_vertices: usize,
+    pub changed_z_vertices: usize,
+    pub unmatched_before_vertices: usize,
+    pub unmatched_after_vertices: usize,
+    pub min_dz: Option<f64>,
+    pub max_dz: Option<f64>,
+    pub mean_abs_dz: Option<f64>,
+    pub added_faces: usize,
+    pub removed_faces: usize,
+    pub modified_faces: usize,
+    pub unchanged_faces: usize,
+    pub sample_added_face_ids: Vec<i64>,
+    pub sample_removed_face_ids: Vec<i64>,
+    pub sample_modified_face_ids: Vec<i64>,
+}
+
+/// Compare two meshes (before vs after): vertex/face deltas, XY-matched elevation
+/// statistics, and face-ID topology/part diff.
+pub fn diff_meshes(before: &Mesh, after: &Mesh, xy_tol: f64) -> MeshDiffSummary {
+    let inv = 1.0 / xy_tol.max(1e-9);
+    let key_xy = |v: [f64; 3]| -> [i64; 2] { [(v[0] * inv).round() as i64, (v[1] * inv).round() as i64] };
+
+    let mut before_xy: HashMap<[i64; 2], f64> = HashMap::with_capacity(before.vertices.len());
+    for &v in &before.vertices {
+        before_xy.insert(key_xy(v), v[2]);
+    }
+
+    let mut matched_xy = 0usize;
+    let mut changed_z = 0usize;
+    let mut unmatched_after = 0usize;
+    let mut min_dz = f64::INFINITY;
+    let mut max_dz = f64::NEG_INFINITY;
+    let mut sum_abs_dz = 0.0;
+    let mut seen_before: HashSet<[i64; 2]> = HashSet::new();
+
+    for &v in &after.vertices {
+        let k = key_xy(v);
+        if let Some(&bz) = before_xy.get(&k) {
+            matched_xy += 1;
+            seen_before.insert(k);
+            let dz = v[2] - bz;
+            if dz.abs() > 1e-6 {
+                changed_z += 1;
+            }
+            min_dz = min_dz.min(dz);
+            max_dz = max_dz.max(dz);
+            sum_abs_dz += dz.abs();
+        } else {
+            unmatched_after += 1;
         }
-        for (idx, (_, verts, part)) in kept_faces.iter().enumerate() {
-            let mat: i64 = part
-                .strip_prefix("material_")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1);
-            if verts.len() == 3 {
-                out.push_str(&format!(
-                    "E3T {} {} {} {} {}\n",
-                    idx + 1,
-                    verts[0] + 1,
-                    verts[1] + 1,
-                    verts[2] + 1,
-                    mat
-                ));
-            } else if verts.len() == 4 {
-                out.push_str(&format!(
-                    "E4Q {} {} {} {} {} {}\n",
-                    idx + 1,
-                    verts[0] + 1,
-                    verts[1] + 1,
-                    verts[2] + 1,
-                    verts[3] + 1,
-                    mat
-                ));
+    }
+    let unmatched_before = before_xy.len().saturating_sub(seen_before.len());
+
+    let face_sig = |mesh: &Mesh, f: &Face| -> (String, Vec<[i64; 3]>) {
+        let pts = f
+            .verts
+            .iter()
+            .map(|&vi| {
+                let p = mesh.vertices[vi];
+                [
+                    (p[0] * inv).round() as i64,
+                    (p[1] * inv).round() as i64,
+                    (p[2] * 1e4).round() as i64,
+                ]
+            })
+            .collect();
+        (f.part.clone(), pts)
+    };
+
+    let before_faces_map: HashMap<i64, (String, Vec<[i64; 3]>)> = before
+        .faces
+        .iter()
+        .map(|f| (f.id, face_sig(before, f)))
+        .collect();
+    let after_faces_map: HashMap<i64, (String, Vec<[i64; 3]>)> = after
+        .faces
+        .iter()
+        .map(|f| (f.id, face_sig(after, f)))
+        .collect();
+
+    let mut added_ids = Vec::new();
+    let mut removed_ids = Vec::new();
+    let mut modified_ids = Vec::new();
+    let mut unchanged = 0usize;
+
+    for f in &after.faces {
+        match before_faces_map.get(&f.id) {
+            None => added_ids.push(f.id),
+            Some(old_sig) => {
+                if old_sig == &after_faces_map[&f.id] {
+                    unchanged += 1;
+                } else {
+                    modified_ids.push(f.id);
+                }
             }
         }
-    } else {
-        out.push_str("# Sliced by spatial-cad-mcp (mcp-mesh)\n");
-        for v in &new_verts {
-            out.push_str(&format!("v {} {} {}\n", v[0], v[1], v[2]));
-        }
-        let mut last_part = String::new();
-        for (_, verts, part) in &kept_faces {
-            if *part != last_part {
-                out.push_str(&format!("g {part}\n"));
-                last_part = part.clone();
-            }
-            out.push('f');
-            for &vi in verts {
-                out.push_str(&format!(" {}", vi + 1));
-            }
-            out.push('\n');
+    }
+    for f in &before.faces {
+        if !after_faces_map.contains_key(&f.id) {
+            removed_ids.push(f.id);
         }
     }
 
-    std::fs::write(output_path, out).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed writing sliced mesh: {e}"))
-    })?;
-    Ok((new_verts.len(), kept_faces.len()))
+    added_ids.sort_unstable();
+    removed_ids.sort_unstable();
+    modified_ids.sort_unstable();
+
+    MeshDiffSummary {
+        before_vertices: before.vertices.len(),
+        after_vertices: after.vertices.len(),
+        delta_vertices: after.vertices.len() as i64 - before.vertices.len() as i64,
+        before_faces: before.faces.len(),
+        after_faces: after.faces.len(),
+        delta_faces: after.faces.len() as i64 - before.faces.len() as i64,
+        matched_xy_vertices: matched_xy,
+        changed_z_vertices: changed_z,
+        unmatched_before_vertices: unmatched_before,
+        unmatched_after_vertices: unmatched_after,
+        min_dz: (matched_xy > 0).then_some(round4(min_dz)),
+        max_dz: (matched_xy > 0).then_some(round4(max_dz)),
+        mean_abs_dz: (matched_xy > 0).then_some(round4(sum_abs_dz / matched_xy as f64)),
+        added_faces: added_ids.len(),
+        removed_faces: removed_ids.len(),
+        modified_faces: modified_ids.len(),
+        unchanged_faces: unchanged,
+        sample_added_face_ids: added_ids.into_iter().take(25).collect(),
+        sample_removed_face_ids: removed_ids.into_iter().take(25).collect(),
+        sample_modified_face_ids: modified_ids.into_iter().take(25).collect(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MeshFlipReport {
+    pub flips_applied: usize,
+    pub rounds_run: usize,
+    pub before_violation_pairs: usize,
+    pub after_violation_pairs: usize,
+    pub before_worst_height_ratio: Option<f64>,
+    pub after_worst_height_ratio: Option<f64>,
+    pub before_min_angle_deg: Option<f64>,
+    pub after_min_angle_deg: Option<f64>,
+}
+
+fn tri_signed_area_xy(verts: &[[f64; 3]], t: [usize; 3]) -> f64 {
+    let (a, b, c) = (verts[t[0]], verts[t[1]], verts[t[2]]);
+    0.5 * ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+}
+
+fn tri_min_angle_xy(verts: &[[f64; 3]], t: [usize; 3]) -> f64 {
+    let p = [verts[t[0]], verts[t[1]], verts[t[2]]];
+    let mut best = 180.0_f64;
+    for k in 0..3 {
+        let prev = p[(k + 2) % 3];
+        let next = p[(k + 1) % 3];
+        let u = [prev[0] - p[k][0], prev[1] - p[k][1]];
+        let v = [next[0] - p[k][0], next[1] - p[k][1]];
+        let denom = (u[0].hypot(u[1]) * v[0].hypot(v[1])).max(1e-12);
+        let ang = ((u[0] * v[0] + u[1] * v[1]) / denom)
+            .clamp(-1.0, 1.0)
+            .acos()
+            .to_degrees();
+        best = best.min(ang);
+    }
+    best
+}
+
+fn face_height_xy(verts: &[[f64; 3]], face: &Face) -> f64 {
+    let nv = face.verts.len();
+    if nv < 3 {
+        return 0.0;
+    }
+    let origin = verts[face.verts[0]];
+    let mut longest = 0.0_f64;
+    let mut area2 = 0.0_f64;
+    for k in 0..nv {
+        let a = verts[face.verts[k]];
+        let b = verts[face.verts[(k + 1) % nv]];
+        let ax = a[0] - origin[0];
+        let ay = a[1] - origin[1];
+        let bx = b[0] - origin[0];
+        let by = b[1] - origin[1];
+        longest = longest.max((bx - ax).hypot(by - ay));
+        area2 += ax * by - bx * ay;
+    }
+    let area = (0.5 * area2).abs();
+    let mult = if nv == 3 { 2.0 } else { 1.0 };
+    mult * area / longest.max(1e-12)
+}
+
+type EdgeIndexList = Vec<([usize; 2], usize)>;
+type SharedEdgePairList = Vec<([usize; 2], usize, usize)>;
+
+fn build_shared_edge_pairs(faces: &[Face]) -> (EdgeIndexList, SharedEdgePairList) {
+    let mut edge_list: Vec<([usize; 2], usize)> = Vec::with_capacity(faces.len() * 3);
+    for (fi, f) in faces.iter().enumerate() {
+        let nv = f.verts.len();
+        for k in 0..nv {
+            let a = f.verts[k];
+            let b = f.verts[(k + 1) % nv];
+            let key = if a <= b { [a, b] } else { [b, a] };
+            edge_list.push((key, fi));
+        }
+    }
+    edge_list.sort_by_key(|(e, _)| *e);
+    let mut pairs = Vec::new();
+    let mut i = 0;
+    while i + 1 < edge_list.len() {
+        let e = edge_list[i].0;
+        let mut j = i + 1;
+        while j < edge_list.len() && edge_list[j].0 == e {
+            j += 1;
+        }
+        // Only clean manifold interior edges (exactly 2 incident faces)
+        if j - i == 2 {
+            pairs.push((e, edge_list[i].1, edge_list[i + 1].1));
+        }
+        i = j;
+    }
+    (edge_list, pairs)
+}
+
+fn measure_height_ratios(verts: &[[f64; 3]], faces: &[Face], limit: f64) -> (usize, Option<f64>, Option<f64>) {
+    let (_, pairs) = build_shared_edge_pairs(faces);
+    let heights: Vec<f64> = faces.iter().map(|f| face_height_xy(verts, f)).collect();
+    let threshold = limit + 1e-8;
+    let mut violations = 0usize;
+    let mut worst = 0.0_f64;
+    for &(_, a, b) in &pairs {
+        let (ha, hb) = (heights[a], heights[b]);
+        let r = ha.max(hb) / ha.min(hb).max(1e-30);
+        if r > threshold {
+            violations += 1;
+        }
+        worst = worst.max(r);
+    }
+    let min_ang = faces
+        .iter()
+        .filter(|f| f.verts.len() == 3)
+        .map(|f| tri_min_angle_xy(verts, [f.verts[0], f.verts[1], f.verts[2]]))
+        .fold(f64::INFINITY, f64::min);
+    (
+        violations,
+        (!pairs.is_empty()).then_some(round3(worst)),
+        min_ang.is_finite().then_some(round3(min_ang)),
+    )
+}
+
+/// Greedy diagonal edge-flipping on interior triangle pairs to reduce neighbor
+/// element height-ratio spikes while preserving outer & material/part boundaries,
+/// convexity, minimum interior angles, and minimum edge length.
+pub fn improve_mesh_flips(
+    mesh: &Mesh,
+    height_ratio_limit: f64,
+    min_angle_deg: f64,
+    min_edge_length: f64,
+    max_rounds: usize,
+    output_path: &Path,
+) -> Result<MeshFlipReport, ToolError> {
+    let (before_viol, before_worst, before_min_ang) =
+        measure_height_ratios(&mesh.vertices, &mesh.faces, height_ratio_limit);
+
+    let mut out_mesh = mesh.clone();
+    let threshold = height_ratio_limit + 1e-8;
+    let mut flips_applied = 0usize;
+    let mut rounds_run = 0usize;
+
+    for _ in 0..max_rounds.clamp(1, 20) {
+        let (edge_list, pairs) = build_shared_edge_pairs(&out_mesh.faces);
+        let heights: Vec<f64> = out_mesh
+            .faces
+            .iter()
+            .map(|f| face_height_xy(&out_mesh.vertices, f))
+            .collect();
+        let ratios: Vec<f64> = pairs
+            .iter()
+            .map(|&(_, a, b)| heights[a].max(heights[b]) / heights[a].min(heights[b]).max(1e-30))
+            .collect();
+
+        let mut bad = vec![false; out_mesh.faces.len()];
+        for (&(_, a, b), &r) in pairs.iter().zip(&ratios) {
+            if r > threshold {
+                bad[a] = true;
+                bad[b] = true;
+            }
+        }
+        if !bad.iter().any(|&v| v) {
+            break;
+        }
+        rounds_run += 1;
+
+        let mut lookup: Vec<Vec<usize>> = vec![Vec::new(); out_mesh.faces.len()];
+        for (k, &(_, a, b)) in pairs.iter().enumerate() {
+            lookup[a].push(k);
+            lookup[b].push(k);
+        }
+        let edge_exists = |e: [usize; 2]| edge_list.binary_search_by_key(&e, |(x, _)| *x).is_ok();
+
+        let mut taken = vec![false; out_mesh.faces.len()];
+        let mut changed = false;
+
+        for (k, &([u, v], a, b)) in pairs.iter().enumerate() {
+            if taken[a]
+                || taken[b]
+                || !(bad[a] || bad[b])
+                || out_mesh.faces[a].verts.len() != 3
+                || out_mesh.faces[b].verts.len() != 3
+                || out_mesh.faces[a].part != out_mesh.faces[b].part
+            {
+                continue;
+            }
+            let opp_a = out_mesh.faces[a].verts.iter().copied().find(|&x| x != u && x != v);
+            let opp_b = out_mesh.faces[b].verts.iter().copied().find(|&x| x != u && x != v);
+            let (Some(oa), Some(ob)) = (opp_a, opp_b) else {
+                continue;
+            };
+            let new_diag = if oa <= ob { [oa, ob] } else { [ob, oa] };
+            if oa == ob || edge_exists(new_diag) {
+                continue;
+            }
+
+            let mut t0 = [oa, ob, u];
+            let mut t1 = [ob, oa, v];
+            let sa0 = tri_signed_area_xy(&out_mesh.vertices, t0);
+            let sa1 = tri_signed_area_xy(&out_mesh.vertices, t1);
+            if sa0 * sa1 <= 0.0 {
+                continue; // non-convex union
+            }
+            if sa0 < 0.0 {
+                t0.reverse();
+            }
+            if sa1 < 0.0 {
+                t1.reverse();
+            }
+
+            let new_min_ang = tri_min_angle_xy(&out_mesh.vertices, t0)
+                .min(tri_min_angle_xy(&out_mesh.vertices, t1));
+            let pa = out_mesh.vertices[oa];
+            let pb = out_mesh.vertices[ob];
+            let diag_len = (pa[0] - pb[0]).hypot(pa[1] - pb[1]);
+            if new_min_ang < min_angle_deg || diag_len < min_edge_length {
+                continue;
+            }
+
+            let h0 = face_height_xy(
+                &out_mesh.vertices,
+                &Face {
+                    id: 0,
+                    verts: t0.to_vec(),
+                    part: String::new(),
+                },
+            );
+            let h1 = face_height_xy(
+                &out_mesh.vertices,
+                &Face {
+                    id: 0,
+                    verts: t1.to_vec(),
+                    part: String::new(),
+                },
+            );
+
+            let mut touching: Vec<usize> = lookup[a].iter().chain(&lookup[b]).copied().collect();
+            touching.sort_unstable();
+            touching.dedup();
+
+            let mut old_excess = 0.0;
+            let mut new_excess = 0.0;
+            let mut valid = true;
+            for &j in &touching {
+                let (e_j, c, d) = pairs[j];
+                let new_r = if (c == a && d == b) || (c == b && d == a) {
+                    h0.max(h1) / h0.min(h1).max(1e-30)
+                } else {
+                    let outside = if c == a || c == b { d } else { c };
+                    let h_in = if t0.contains(&e_j[0]) && t0.contains(&e_j[1]) {
+                        h0
+                    } else {
+                        h1
+                    };
+                    h_in.max(heights[outside]) / h_in.min(heights[outside]).max(1e-30)
+                };
+                if ratios[j] <= threshold && new_r > threshold {
+                    valid = false;
+                    break;
+                }
+                let excess = |r: f64| {
+                    let x = (r / height_ratio_limit).ln();
+                    if x > 0.0 { x * x } else { 0.0 }
+                };
+                old_excess += excess(ratios[j]);
+                new_excess += excess(new_r);
+            }
+            if !valid || new_excess >= old_excess - 1e-10 {
+                continue;
+            }
+
+            out_mesh.faces[a].verts = t0.to_vec();
+            out_mesh.faces[b].verts = t1.to_vec();
+            for &j in &touching {
+                taken[pairs[j].1] = true;
+                taken[pairs[j].2] = true;
+            }
+            flips_applied += 1;
+            changed = true;
+            let _ = k;
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    write_mesh_file(&out_mesh, output_path)?;
+    let (after_viol, after_worst, after_min_ang) =
+        measure_height_ratios(&out_mesh.vertices, &out_mesh.faces, height_ratio_limit);
+
+    Ok(MeshFlipReport {
+        flips_applied,
+        rounds_run,
+        before_violation_pairs: before_viol,
+        after_violation_pairs: after_viol,
+        before_worst_height_ratio: before_worst,
+        after_worst_height_ratio: after_worst,
+        before_min_angle_deg: before_min_ang,
+        after_min_angle_deg: after_min_ang,
+    })
 }
 
 #[cfg(test)]

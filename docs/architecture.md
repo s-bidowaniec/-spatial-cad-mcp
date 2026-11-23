@@ -25,9 +25,9 @@ being **another LLM agent** rather than a human at a GUI. Consequences:
 | IFC inspection/validation (mvp) | Python + ifcopenshell | ifcopenshell is the reference IFC library; no comparable Rust ecosystem exists yet |
 | Shared core (sandbox/envelopes/pagination/logging) | Python | ships with all Python servers |
 | DXF server (mvp) | Rust + rmcp | pure-Rust streaming ASCII DXF parser with LibreDWG crease repair, Z=0 audit, layer/entity/text queries, and lossless slice export |
-| GIS server (mvp) | Rust + rmcp | GeoPackage via `rusqlite` + WKB decoder, GeoJSON natively, CRS sanity checks, bbox GeoJSON export |
+| GIS server (mvp) | Rust + rmcp | GeoPackage via `rusqlite` + WKB decoder, GeoJSON natively, CRS sanity checks, point-in-polygon/radius queries, bbox GeoJSON export |
 | Hydrodynamic server (mvp) | Rust + rmcp | pure-Rust TELEMAC Selafin (`.slf`/`.res`), EPA SWMM (`.inp`), and SMS `.2dm` with time series, profiles, and CSV export; HEC-RAS HDF / Delft3D netCDF on roadmap |
-| Mesh server (mvp) | Rust + rmcp | pure-Rust `.2dm`/`.obj`/`.stl` loader with edge-incidence topology, watertightness, element QA, elevation/section sampling, and bbox slice export |
+| Mesh server (mvp) | Rust + rmcp | pure-Rust `.2dm`/`.obj`/`.stl` loader with edge-incidence topology, watertightness, element QA, elevation/section sampling, mesh diff, greedy diagonal-flip grading, and bbox slice export |
 | Envelopes & Sandbox (Rust) | Rust (`cad-envelope`, `cad-sandbox`) | identical envelope/pagination/sandbox rules to `mcp_cad_core`, shared by all Rust binaries |
 | CLI (`cadctl`) | Rust | streaming IFC header/counts inspection with zero CAD dependencies |
 
