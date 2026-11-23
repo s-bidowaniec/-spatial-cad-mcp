@@ -37,9 +37,9 @@ sprawdzić jego pochodzenie i otworzyć zapisany artefakt w docelowym programie.
 - Przeszło 57 testów Python i obie kontrole Ruff. Test wadliwego IFC
   zgłasza istniejące ostrzeżenie destruktora IfcOpenShell.
 - QGIS 3.40.6 z MDAL odczytał syntetyczny trójkąt 2DM jako 3 węzły
-  i 1 element. Dla samej karty `MESH2D` zgłosił poprawną warstwę z
+  i 1 element z oczekiwanymi współrzędnymi XYZ i połączeniami. Dla
+  samej karty `MESH2D` zgłosił poprawną warstwę z
   0 węzłów i 0 elementów. Dlatego próba odbioru musi sprawdzać liczniki
   i geometrię obok statusu otwarcia.
-- Import w Aquaveo SMS pozostaje do sprawdzenia. Karta `MESH2D` jest
-  częścią formatu. Profil eksportu bez komentarzy w SC-02 wymaga
-  osobnego odbioru w docelowej wersji SMS.
+- Karta `MESH2D` jest częścią formatu. Odbiór profilu eksportu
+  bez komentarzy w SC-02 opiera się na QGIS/MDAL.

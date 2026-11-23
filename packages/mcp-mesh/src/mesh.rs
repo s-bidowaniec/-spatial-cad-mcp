@@ -1101,7 +1101,7 @@ pub fn sample_section_line(
 }
 
 /// Write a `Mesh` to a `.2dm` or `.obj` file.
-// spatial-cad-review[SC-02]: Use one SMS export profile and verify the output round trip.
+// spatial-cad-review[SC-02]: Use one 2DM export profile and verify it with QGIS/MDAL.
 fn write_mesh_file(mesh: &Mesh, output_path: &Path) -> Result<(), ToolError> {
     let ext = output_path
         .extension()

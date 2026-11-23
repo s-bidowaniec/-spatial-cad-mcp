@@ -58,8 +58,8 @@ zawierającego zaakceptowane wcześniejsze zmiany.
 Zwróć diff względem bazy, wyniki poszczególnych kryteriów odbioru,
 polecenia testowe wraz z wynikami i opis ograniczeń formatu. Oznacz
 oddzielnie przypadki sprawdzone przez MCP i przypadki otwarte w niezależnym
-czytniku. Użyj syntetycznych danych, a wygenerowane pliki trzymaj w katalogu
-tymczasowym. Ścieżki w diffie mają być względne wobec repozytorium.
+czytniku open source. Użyj syntetycznych danych, a wygenerowane pliki trzymaj
+w katalogu tymczasowym. Ścieżki w diffie mają być względne wobec repozytorium.
 """.encode()
 
 

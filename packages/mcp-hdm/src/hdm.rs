@@ -1100,7 +1100,7 @@ fn query_swmm_series(path: &Path, name: &str) -> Result<ExtractedSeries, ToolErr
 
 // ---------- SMS .2dm Mesh Summary ----------
 
-// spatial-cad-review[SC-02]: Share SMS card validation and consistent counts with mesh.
+// spatial-cad-review[SC-02]: Share 2DM card validation and consistent counts with mesh.
 fn summarize_2dm(path: &Path) -> Result<HdmSummary, ToolError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read .2dm: {e}")))?;

@@ -621,7 +621,7 @@ pub fn dxf_to_mesh(
             out.push('\n');
         }
     } else {
-        // spatial-cad-review[SC-02]: Reuse the shared SMS exporter and its format checks.
+        // spatial-cad-review[SC-02]: Reuse the shared 2DM exporter and its format checks.
         out.push_str("MESH2D\n");
         for (i, v) in out_nodes.iter().enumerate() {
             out.push_str(&format!("ND {} {} {} {}\n", i + 1, v[0], v[1], v[2]));
