@@ -304,7 +304,192 @@ pub struct EntityRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub insert_point: Option<[f64; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insert_scale: Option<[f64; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insert_rotation_deg: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bbox: Option<BBox3D>,
+}
+
+/// A BLOCK definition parsed from the BLOCKS section, with raw group pairs per entity.
+#[derive(Debug, Clone)]
+pub struct BlockDef {
+    pub name: String,
+    pub base_point: [f64; 2],
+    pub entities: Vec<Vec<(i32, String)>>,
+}
+
+impl BlockDef {
+    pub fn is_anonymous(&self) -> bool {
+        self.name.starts_with('*')
+    }
+
+    pub fn entity_type_counts(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::new();
+        for ent in &self.entities {
+            if let Some((_, t)) = ent.first() {
+                *counts.entry(t.to_uppercase()).or_insert(0) += 1;
+            }
+        }
+        counts
+    }
+}
+
+/// DXF INSERT placement transform: `rotate(scale(p - base)) + insert_point`.
+pub fn apply_insert_transform(
+    point: [f64; 2],
+    base: [f64; 2],
+    insert_point: [f64; 2],
+    scale: [f64; 2],
+    rotation_deg: f64,
+) -> [f64; 2] {
+    let sx = (point[0] - base[0]) * scale[0];
+    let sy = (point[1] - base[1]) * scale[1];
+    let rad = rotation_deg * std::f64::consts::PI / 180.0;
+    let (sin_a, cos_a) = rad.sin_cos();
+    [
+        insert_point[0] + sx * cos_a - sy * sin_a,
+        insert_point[1] + sx * sin_a + sy * cos_a,
+    ]
+}
+
+/// Transforms raw entity group pairs into model space via an INSERT placement.
+pub fn transform_entity_groups(
+    groups: &[(i32, String)],
+    base: [f64; 2],
+    insert_point: [f64; 2],
+    scale: [f64; 2],
+    rotation_deg: f64,
+) -> Vec<(i32, String)> {
+    let entity_type = groups
+        .first()
+        .map(|(_, v)| v.to_uppercase())
+        .unwrap_or_default();
+    let mut out: Vec<(i32, String)> = groups.to_vec();
+    let mut pending_x: [Option<(usize, f64)>; 9] = [None; 9];
+    for idx in 0..out.len() {
+        let code = out[idx].0;
+        if (10..=18).contains(&code) {
+            if let Ok(x) = out[idx].1.trim().parse::<f64>() {
+                pending_x[(code - 10) as usize] = Some((idx, x));
+            }
+        } else if (20..=28).contains(&code)
+            && let Some((x_idx, x)) = pending_x[(code - 20) as usize].take()
+            && let Ok(y) = out[idx].1.trim().parse::<f64>()
+        {
+            let [nx, ny] = apply_insert_transform([x, y], base, insert_point, scale, rotation_deg);
+            out[x_idx].1 = fmt_num(nx);
+            out[idx].1 = fmt_num(ny);
+        }
+    }
+    if matches!(entity_type.as_str(), "CIRCLE" | "ARC") {
+        let uniform_s = scale[0].abs().max(scale[1].abs());
+        for pair in &mut out {
+            if pair.0 == 40
+                && let Ok(r) = pair.1.trim().parse::<f64>()
+            {
+                pair.1 = fmt_num(r * uniform_s);
+            }
+        }
+    }
+    if matches!(entity_type.as_str(), "ARC" | "TEXT" | "MTEXT") {
+        for pair in &mut out {
+            if matches!(pair.0, 50 | 51)
+                && let Ok(a) = pair.1.trim().parse::<f64>()
+            {
+                pair.1 = fmt_num(a + rotation_deg);
+            }
+        }
+    }
+    out
+}
+
+fn fmt_num(v: f64) -> String {
+    let clean = if v.abs() < 1e-12 { 0.0 } else { v };
+    format!("{clean:.6}")
+}
+
+/// Builds a summary [`EntityRecord`] from raw group pairs (used for INSERT expansion).
+pub fn entity_record_from_groups(entity_type: &str, groups: &[(i32, &str)]) -> EntityRecord {
+    let (rec, _, _) = parse_single_entity(entity_type, groups);
+    rec
+}
+
+/// Parses a BLOCKS section slice into block definitions with raw entity groups.
+fn parse_blocks_section(pairs: &[(i32, &str)]) -> BTreeMap<String, BlockDef> {
+    let mut blocks = BTreeMap::new();
+    let mut i = 0usize;
+    while i < pairs.len() {
+        if pairs[i].0 == 0 && pairs[i].1.eq_ignore_ascii_case("BLOCK") {
+            i += 1;
+            let mut name = String::new();
+            let mut base = [0.0f64; 2];
+            while i < pairs.len() && pairs[i].0 != 0 {
+                match pairs[i].0 {
+                    2 => name = pairs[i].1.trim().to_string(),
+                    3 if name.is_empty() => name = pairs[i].1.trim().to_string(),
+                    10 => base[0] = pairs[i].1.trim().parse::<f64>().unwrap_or(0.0),
+                    20 => base[1] = pairs[i].1.trim().parse::<f64>().unwrap_or(0.0),
+                    _ => {}
+                }
+                i += 1;
+            }
+            let ent_start = i;
+            while i < pairs.len()
+                && !(pairs[i].0 == 0 && pairs[i].1.eq_ignore_ascii_case("ENDBLK"))
+            {
+                i += 1;
+            }
+            let mut entities: Vec<Vec<(i32, String)>> = Vec::new();
+            let mut cur: Option<Vec<(i32, String)>> = None;
+            for (c, v) in &pairs[ent_start..i] {
+                if *c == 0 {
+                    if let Some(e) = cur.take() {
+                        entities.push(e);
+                    }
+                    cur = Some(vec![(*c, (*v).to_string())]);
+                } else if let Some(ref mut e) = cur {
+                    e.push((*c, (*v).to_string()));
+                }
+            }
+            if let Some(e) = cur {
+                entities.push(e);
+            }
+            if i < pairs.len() {
+                i += 1;
+                while i < pairs.len() && pairs[i].0 != 0 {
+                    i += 1;
+                }
+            }
+            if !name.is_empty() {
+                blocks.insert(
+                    name.clone(),
+                    BlockDef {
+                        name,
+                        base_point: base,
+                        entities,
+                    },
+                );
+            }
+        } else {
+            i += 1;
+        }
+    }
+    blocks
+}
+
+fn count_insert_refs(entities: &[EntityRecord]) -> BTreeMap<String, usize> {
+    let mut refs = BTreeMap::new();
+    for ent in entities {
+        if ent.entity_type == "INSERT"
+            && let Some(name) = &ent.block_name
+        {
+            *refs.entry(name.trim().to_string()).or_insert(0) += 1;
+        }
+    }
+    refs
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -342,6 +527,8 @@ pub struct DxfDocument {
     pub coord_convention: Option<CoordConvention>,
     pub mesh_counts_repaired: usize,
     pub insert_count: usize,
+    pub blocks: BTreeMap<String, BlockDef>,
+    pub insert_refs: BTreeMap<String, usize>,
     pub warnings: Vec<String>,
 }
 
@@ -632,16 +819,22 @@ pub fn parse_dxf_bytes(raw: &[u8]) -> Result<DxfDocument, ToolError> {
 
     let mut i = 0usize;
     let mut section = String::new();
+    let mut sec_start = 0usize;
+    let mut blocks: BTreeMap<String, BlockDef> = BTreeMap::new();
 
     while i < pairs.len() {
         let (code, val) = pairs[i];
         if code == 0 && val == "SECTION" {
             if i + 1 < pairs.len() && pairs[i + 1].0 == 2 {
                 section = pairs[i + 1].1.to_string();
+                sec_start = i + 2;
                 i += 2;
                 continue;
             }
         } else if code == 0 && val == "ENDSEC" {
+            if section.eq_ignore_ascii_case("BLOCKS") {
+                blocks = parse_blocks_section(&pairs[sec_start..i]);
+            }
             section.clear();
             i += 1;
             continue;
@@ -820,6 +1013,7 @@ pub fn parse_dxf_bytes(raw: &[u8]) -> Result<DxfDocument, ToolError> {
 
     let acad_release = acad_version.as_deref().map(acad_version_label);
     let insunits_name = insunits_label(insunits_code).to_string();
+    let insert_refs = count_insert_refs(&entities);
 
     Ok(DxfDocument {
         acad_version,
@@ -835,6 +1029,8 @@ pub fn parse_dxf_bytes(raw: &[u8]) -> Result<DxfDocument, ToolError> {
         coord_convention,
         mesh_counts_repaired,
         insert_count,
+        blocks,
+        insert_refs,
         warnings,
     })
 }
@@ -982,6 +1178,9 @@ fn parse_polyline(
         closed,
         length_2d,
         block_name: None,
+        insert_point: None,
+        insert_scale: None,
+        insert_rotation_deg: None,
         bbox: bbox.finish(),
     };
     (rec, pts, cursor)
@@ -1178,6 +1377,22 @@ fn parse_single_entity(
         None
     };
 
+    let (insert_point, insert_scale, insert_rotation_deg) = if entity_type == "INSERT" {
+        let gp = |c: i32| {
+            pairs
+                .iter()
+                .find(|(cc, _)| *cc == c)
+                .and_then(|(_, v)| v.trim().parse::<f64>().ok())
+        };
+        (
+            Some([gp(10).unwrap_or(0.0), gp(20).unwrap_or(0.0)]),
+            Some([gp(41).unwrap_or(1.0), gp(42).unwrap_or(1.0)]),
+            Some(gp(50).unwrap_or(0.0)),
+        )
+    } else {
+        (None, None, None)
+    };
+
     let rec = EntityRecord {
         handle,
         entity_type: entity_type.to_string(),
@@ -1187,6 +1402,9 @@ fn parse_single_entity(
         closed,
         length_2d,
         block_name,
+        insert_point,
+        insert_scale,
+        insert_rotation_deg,
         bbox: bbox.finish(),
     };
     (rec, pts, text_rec)

@@ -12,8 +12,13 @@ use crate::cad3d::{
     dxf_to_mesh,
 };
 use crate::parser::{
-    BBox3D, EntityRecord, LayerDetail, TextRecord, export_dxf_slice, parse_dxf_file,
+    BBox3D, EntityRecord, LayerDetail, TextRecord, entity_record_from_groups, export_dxf_slice,
+    parse_dxf_file, transform_entity_groups,
 };
+use std::collections::BTreeMap;
+
+/// Max expanded sub-entities per INSERT when `expand_inserts` is true.
+const MAX_EXPANDED_PER_INSERT: usize = 50;
 use cad_envelope::{
     MAX_VALUE_CHARS, ToolError, paginate, resolve_input_file, run_envelope, truncate_value,
 };
@@ -54,6 +59,9 @@ pub struct DxfQueryEntitiesParams {
     /// Optional filter on whether the entity carries non-zero 3D elevation (true = 3D, false = 2D/Z=0).
     #[serde(default)]
     pub has_z: Option<bool>,
+    /// When true, each INSERT entity includes `expanded`: its block entities transformed into model space (rotate(scale(p - base)) + insert_point), capped at 50 per INSERT.
+    #[serde(default)]
+    pub expand_inserts: Option<bool>,
     /// Optional 2D bounding box filter [min_x, min_y, max_x, max_y] returning entities whose bbox intersects it.
     #[serde(default)]
     pub bbox: Option<[f64; 4]>,
@@ -244,7 +252,45 @@ struct DxfSummaryData {
 #[derive(Debug, Serialize)]
 struct QueryEntitiesData {
     dxf_path: String,
-    entities: Vec<EntityRecord>,
+    entities: Vec<QueriedEntity>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct QueriedEntity {
+    #[serde(flatten)]
+    rec: EntityRecord,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expanded: Option<Vec<EntityRecord>>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfQueryBlocksParams {
+    /// Path to the ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dxf_path: String,
+    /// Optional case-insensitive substring filter on block names.
+    #[serde(default)]
+    pub name_filter: Option<String>,
+    /// Page size (default 50, hard cap 200).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Zero-based pagination offset (default 0).
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BlockSummaryRecord {
+    name: String,
+    anonymous: bool,
+    base_point: [f64; 2],
+    entity_counts: BTreeMap<String, usize>,
+    insert_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct QueryBlocksData {
+    dxf_path: String,
+    blocks: Vec<BlockSummaryRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -321,6 +367,7 @@ impl DxfServer {
             }
             let resolved = resolve_input_file(&self.sandbox, &params.dxf_path)?;
             let doc = parse_dxf_file(&resolved)?;
+            let blocks = doc.blocks.clone();
 
             let layer_lc = params.layer.as_deref().map(str::to_ascii_lowercase);
             let type_uc = params.entity_type.as_deref().map(str::to_ascii_uppercase);
@@ -363,10 +410,92 @@ impl DxfServer {
             let page = paginate(&filtered, params.limit, params.offset)?;
             let mut meta = Map::new();
             meta.insert("pagination".to_string(), page.meta_value());
+            let expand = params.expand_inserts.unwrap_or(false);
+            let items: Vec<QueriedEntity> = page
+                .items
+                .into_iter()
+                .map(|rec| {
+                    let expanded = if expand && rec.entity_type == "INSERT" {
+                        rec.block_name.as_ref().and_then(|bname| {
+                            blocks.get(bname.trim()).map(|blk| {
+                                let ip = rec.insert_point.unwrap_or([0.0, 0.0]);
+                                let sc = rec.insert_scale.unwrap_or([1.0, 1.0]);
+                                let rot = rec.insert_rotation_deg.unwrap_or(0.0);
+                                if blk.entities.len() > MAX_EXPANDED_PER_INSERT {
+                                    meta.insert(
+                                        "expanded_per_insert_capped_to".to_string(),
+                                        json!(MAX_EXPANDED_PER_INSERT),
+                                    );
+                                }
+                                blk.entities
+                                    .iter()
+                                    .take(MAX_EXPANDED_PER_INSERT)
+                                    .map(|g| {
+                                        let et = g
+                                            .first()
+                                            .map(|(_, v)| v.clone())
+                                            .unwrap_or_default();
+                                        let transformed =
+                                            transform_entity_groups(g, blk.base_point, ip, sc, rot);
+                                        let refs: Vec<(i32, &str)> = transformed
+                                            .iter()
+                                            .map(|(c, v)| (*c, v.as_str()))
+                                            .collect();
+                                        entity_record_from_groups(&et, &refs)
+                                    })
+                                    .collect()
+                            })
+                        })
+                    } else {
+                        None
+                    };
+                    QueriedEntity { rec, expanded }
+                })
+                .collect();
             Ok((
                 QueryEntitiesData {
                     dxf_path: params.dxf_path,
-                    entities: page.items,
+                    entities: items,
+                },
+                Some(meta),
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Read-only paginated listing of BLOCK definitions (name, anonymous flag, base_point, per-type entity counts, and how many INSERTs reference each block) with optional case-insensitive name substring filter. Hard page cap: 200."
+    )]
+    pub fn dxf_query_blocks(
+        &self,
+        Parameters(params): Parameters<DxfQueryBlocksParams>,
+    ) -> String {
+        run_envelope("dxf_query_blocks", || {
+            let resolved = resolve_input_file(&self.sandbox, &params.dxf_path)?;
+            let doc = parse_dxf_file(&resolved)?;
+            let needle = params.name_filter.as_deref().map(str::to_ascii_lowercase);
+            let matched: Vec<BlockSummaryRecord> = doc
+                .blocks
+                .values()
+                .filter(|b| {
+                    needle
+                        .as_deref()
+                        .is_none_or(|n| b.name.to_ascii_lowercase().contains(n))
+                })
+                .map(|b| BlockSummaryRecord {
+                    name: b.name.clone(),
+                    anonymous: b.is_anonymous(),
+                    base_point: b.base_point,
+                    entity_counts: b.entity_type_counts(),
+                    insert_count: *doc.insert_refs.get(&b.name).unwrap_or(&0),
+                })
+                .collect();
+            let page = paginate(&matched, params.limit, params.offset)?;
+            let mut meta = Map::new();
+            meta.insert("pagination".to_string(), page.meta_value());
+            Ok((
+                QueryBlocksData {
+                    dxf_path: params.dxf_path,
+                    blocks: page.items,
                 },
                 Some(meta),
             ))
@@ -684,6 +813,7 @@ mod tests {
                 layer: Some("road".to_string()),
                 entity_type: None,
                 has_z: Some(true),
+                expand_inserts: None,
                 bbox: Some([0.0, 0.0, 50.0, 50.0]),
                 limit: Some(500),
                 offset: Some(0),
@@ -840,6 +970,67 @@ mod tests {
         assert_eq!(lbl["data"]["report"]["z_min_out"], 100.0);
         assert_eq!(lbl["data"]["report"]["z_max_out"], 102.0);
         assert!(dir.join("outputs/elevated.dxf").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn query_blocks_and_expand_inserts_work() {
+        let (dir, srv) = make_workspace("blocks");
+        let dxf = "\
+0\nSECTION\n2\nBLOCKS\n\
+0\nBLOCK\n2\nVALVE_SYM\n10\n1.0\n20\n2.0\n\
+0\nLINE\n8\n0\n10\n1.0\n20\n2.0\n11\n3.0\n21\n2.0\n\
+0\nCIRCLE\n8\n0\n10\n2.0\n20\n3.0\n40\n0.5\n\
+0\nENDBLK\n\
+0\nENDSEC\n\
+0\nSECTION\n2\nENTITIES\n\
+0\nINSERT\n5\nA1\n2\nVALVE_SYM\n8\nPIPING\n10\n10.0\n20\n20.0\n41\n2.0\n42\n2.0\n50\n90.0\n\
+0\nENDSEC\n0\nEOF\n";
+        fs::write(dir.join("blocks.dxf"), dxf).unwrap();
+
+        let blocks: Value = serde_json::from_str(&srv.dxf_query_blocks(Parameters(
+            DxfQueryBlocksParams {
+                dxf_path: "blocks.dxf".to_string(),
+                name_filter: None,
+                limit: None,
+                offset: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(blocks["ok"], true);
+        let b = &blocks["data"]["blocks"][0];
+        assert_eq!(b["name"], "VALVE_SYM");
+        assert_eq!(b["anonymous"], false);
+        assert_eq!(b["entity_counts"]["LINE"], 1);
+        assert_eq!(b["entity_counts"]["CIRCLE"], 1);
+        assert_eq!(b["insert_count"], 1);
+
+        let ents: Value = serde_json::from_str(&srv.dxf_query_entities(Parameters(
+            DxfQueryEntitiesParams {
+                dxf_path: "blocks.dxf".to_string(),
+                layer: None,
+                entity_type: Some("INSERT".to_string()),
+                has_z: None,
+                expand_inserts: Some(true),
+                bbox: None,
+                limit: None,
+                offset: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(ents["ok"], true);
+        let expanded = &ents["data"]["entities"][0]["expanded"];
+        assert_eq!(expanded.as_array().unwrap().len(), 2);
+        // LINE (1,2)->(3,2) in block space, base (1,2), insert (10,20), scale 2x, rot 90deg
+        // => (10,20) -> (10, 24)
+        let line = &expanded[0];
+        assert!((line["bbox"]["min"][0].as_f64().unwrap() - 10.0).abs() < 1e-6);
+        assert!((line["bbox"]["max"][1].as_f64().unwrap() - 24.0).abs() < 1e-6);
+        // CIRCLE center (2,3): (2-1,3-2)*2 = (2,2), rot90 => (-2,2) + (10,20) = (8,22), radius 0.5*2 = 1.0
+        let circle = &expanded[1];
+        assert!((circle["bbox"]["min"][0].as_f64().unwrap() - 7.0).abs() < 1e-6);
+        assert!((circle["bbox"]["max"][0].as_f64().unwrap() - 9.0).abs() < 1e-6);
 
         let _ = fs::remove_dir_all(&dir);
     }
