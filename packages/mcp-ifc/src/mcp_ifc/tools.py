@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import ifcopenshell
@@ -24,15 +25,20 @@ from mcp_cad_core.log import get_logger
 from mcp_cad_core.pagination import Page, PaginationError, paginate, truncate_value
 from mcp_cad_core.responses import ToolError, ok, safe_tool
 from mcp_cad_core.sandbox import workspace_sandbox
+from mcp_ifc.export_submodel import MAX_GLOBAL_IDS, export_submodel, validate_output_name
 from mcp_ifc.model_cache import load_ifc
 
 _logger = get_logger(__name__)
 
 
+def _resolve_input_path(ifc_path: str) -> Path:
+    """Sandbox-resolve ``ifc_path`` to an existing file inside the workspace."""
+    return workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
+
+
 def _resolve_input(ifc_path: str) -> ifcopenshell.file:
     """Sandbox-resolve ``ifc_path`` and return the parsed model."""
-    path = workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
-    return load_ifc(path)
+    return load_ifc(_resolve_input_path(ifc_path))
 
 
 def _paged(items: list[Any], limit: int, offset: int) -> Page:
@@ -359,3 +365,69 @@ def _missing_required(required: list[str], psets: dict[str, dict[str, Any]]) -> 
         if not has_value:
             missing.append(prop)
     return missing
+
+
+@safe_tool
+def ifc_export_submodel(
+    ifc_path: str,
+    output_name: str,
+    class_filter: list[str] | None = None,
+    global_ids: list[str] | None = None,
+    container_global_id: str | None = None,
+) -> dict[str, Any]:
+    """Export matching IFC products to a NEW file under `<workspace>/outputs/` (mutating).
+
+    At least one selector is required: `class_filter` (e.g. ["IfcWall",
+    "IfcSlab"]), `global_ids` (cap 200, clamped with meta.limit_clamped_to),
+    and/or `container_global_id` (everything contained in that spatial
+    container). Selectors combine by intersection. The output keeps the IFC
+    header, spatial hierarchy, type objects and materials; the input file is
+    never modified. Unknown GlobalIds do not abort the export - they are
+    reported in data.missing_global_ids. The written file is re-opened to
+    validate it before returning ok.
+
+    Args:
+        ifc_path: Path to the source .ifc file, relative to the workspace root.
+        output_name: Plain `.ifc` file name for the new file under `outputs/`
+            (collision -> output_exists, never overwritten).
+        class_filter: Optional list of IFC classes to keep, e.g. ["IfcWall"].
+        global_ids: Optional list of GlobalIds to keep (cap 200).
+        container_global_id: Optional GlobalId of a spatial container whose
+            contained elements are exported.
+
+    Returns:
+        Envelope with data: output, elements_before, elements_after, by_class,
+        file_size_bytes, and missing_global_ids when some ids were unknown.
+    """
+    classes = [c.strip() for c in (class_filter or []) if c and c.strip()]
+    gids = [g.strip() for g in (global_ids or []) if g and g.strip()]
+    container_gid = (
+        container_global_id.strip() if container_global_id and container_global_id.strip() else None
+    )
+    if not classes and not gids and not container_gid:
+        raise ToolError(
+            "invalid_input",
+            "At least one selector (class_filter, global_ids, or container_global_id) is required.",
+        )
+
+    name = validate_output_name(output_name)
+    input_path = _resolve_input_path(ifc_path)
+    output_path = workspace_sandbox().resolve_output(name)
+
+    limit_clamped_to: int | None = None
+    if len(gids) > MAX_GLOBAL_IDS:
+        gids = gids[:MAX_GLOBAL_IDS]
+        limit_clamped_to = MAX_GLOBAL_IDS
+
+    data = export_submodel(
+        input_path,
+        output_path,
+        class_filter=classes,
+        global_ids=gids,
+        container_global_id=container_gid,
+    )
+    data["ifc_path"] = ifc_path
+    meta: dict[str, Any] = {}
+    if limit_clamped_to is not None:
+        meta["limit_clamped_to"] = limit_clamped_to
+    return ok(data, meta=meta)
