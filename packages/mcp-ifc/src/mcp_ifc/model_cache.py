@@ -10,9 +10,11 @@ least-recently used entry otherwise.
 from __future__ import annotations
 
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import ifcopenshell
 
@@ -77,9 +79,53 @@ class IfcModelCache:
             ) from exc
 
 
+class ShapeSummaryTtlCache:
+    """Thread-safe TTL cache for per-(file_key, global_id) shape summaries.
+
+    Geometry kernel calls are expensive on large models; the cached summaries
+    are tiny (bbox + triangle count), so they are kept for ``ttl_seconds``
+    and the oldest entry is evicted once ``max_entries`` is reached.
+    """
+
+    def __init__(self, ttl_seconds: float = 300.0, max_entries: int = 4096) -> None:
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._entries: dict[tuple[str, str], tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, file_key: str, global_id: str) -> Any | None:
+        key = (file_key, global_id)
+        with self._lock:
+            item = self._entries.get(key)
+            if item is None:
+                return None
+            expires_at, value = item
+            if time.monotonic() > expires_at:
+                del self._entries[key]
+                return None
+            return value
+
+    def set(self, file_key: str, global_id: str, value: Any) -> None:
+        with self._lock:
+            if len(self._entries) >= self.max_entries:
+                oldest_key = next(iter(self._entries))
+                del self._entries[oldest_key]
+            self._entries[(file_key, global_id)] = (time.monotonic() + self.ttl_seconds, value)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+
 _cache = IfcModelCache()
+_shape_summary_cache = ShapeSummaryTtlCache()
 
 
 def load_ifc(path: Path) -> ifcopenshell.file:
     """Load an IFC model through the process-wide cache."""
     return _cache.load(path)
+
+
+def shape_summary_cache() -> ShapeSummaryTtlCache:
+    """Process-wide TTL cache for computed shape summaries (bbox + tris)."""
+    return _shape_summary_cache

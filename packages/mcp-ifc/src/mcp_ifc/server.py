@@ -10,7 +10,7 @@ Usage::
 The MCP-exposed tool functions below deliberately mirror the names in
 ``mcp_ifc.tools`` (separate module namespace) so that the wire tool names
 stay agent-friendly: `ifc_summary`, `ifc_query_elements`, `ifc_get_psets`,
-`ifc_validate_required_props`.
+`ifc_validate_required_props`, `ifc_element_bbox`, `ifc_geometry_summary`.
 """
 
 from __future__ import annotations
@@ -120,6 +120,45 @@ def ifc_validate_required_props(
         offset: Zero-based index of the first returned issue record.
     """
     return t.ifc_validate_required_props(ifc_path, ifc_class, properties, pset_name, limit, offset)
+
+
+@mcp.tool()
+def ifc_element_bbox(ifc_path: str, global_id: str, include_children: bool = False) -> dict:
+    """Compute the 3D world bbox, center, and triangle count of one IFC element.
+
+    Read-only geometry summary via the OCCT kernel: bbox min/max, center, and
+    geometry_tris only - never raw vertices or meshes. With include_children on
+    a spatial container, union the bboxes of its contained elements (cap 200).
+    Requires `ifcopenshell.geom`; without it the tool answers not_implemented.
+
+    Args:
+        ifc_path: Path to the .ifc file relative to the workspace root.
+        global_id: 22-character IFC GlobalId of the element.
+        include_children: Union bboxes of contained elements (cap 200 children).
+    """
+    return t.ifc_element_bbox(ifc_path, global_id, include_children)
+
+
+@mcp.tool()
+def ifc_geometry_summary(
+    ifc_path: str,
+    class_filter: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Per-class geometry aggregates: count, bbox union, smallest-footprint element.
+
+    Read-only rollup over all products (or one class via class_filter), paginated
+    with hard cap 200. Never returns raw geometry - only bboxes and counts.
+    Requires `ifcopenshell.geom`; without it the tool answers not_implemented.
+
+    Args:
+        ifc_path: Path to the .ifc file relative to the workspace root.
+        class_filter: Optional IFC class to restrict the rollup, e.g. IfcWall.
+        limit: Page size, 1..200 (larger values are clamped).
+        offset: Zero-based index of the first returned class row.
+    """
+    return t.ifc_geometry_summary(ifc_path, class_filter, limit, offset)
 
 
 def main() -> None:

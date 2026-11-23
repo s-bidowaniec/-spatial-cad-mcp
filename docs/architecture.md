@@ -60,8 +60,9 @@ the `safe_tool` decorator converts them into envelopes and logs details to stder
 
 ## Roadmap
 
-- mcp-ifc: geometry-level summaries (bounding boxes via `ifcopenshell.geom`), spatial-hierarchy
-  browser, first mutating tool (`ifc_export_submodel`, writing to `outputs/`).
+- mcp-ifc: spatial-hierarchy browser, first mutating tool (`ifc_export_submodel`, writing
+  to `outputs/`). Done: geometry-level summaries (per-element bbox/center/tris and
+  per-class aggregates via `ifcopenshell.geom`, never raw geometry in envelopes).
 - mcp-dxf: 2D-to-3D polyline draping onto mesh surfaces (`dxf_drape_mesh`), block/INSERT expansion.
 - mcp-gis: Shapefile / FlatGeobuf / GeoTIFF raster summary & clip support.
 - mcp-hdm: HEC-RAS HDF and Delft3D netCDF readers.
