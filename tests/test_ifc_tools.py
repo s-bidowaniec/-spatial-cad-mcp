@@ -175,4 +175,6 @@ class TestServerRegistration:
             "ifc_query_elements",
             "ifc_get_psets",
             "ifc_validate_required_props",
+            "ifc_element_bbox",
+            "ifc_geometry_summary",
         }

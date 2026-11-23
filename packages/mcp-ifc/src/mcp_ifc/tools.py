@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import ifcopenshell
@@ -24,15 +25,26 @@ from mcp_cad_core.log import get_logger
 from mcp_cad_core.pagination import Page, PaginationError, paginate, truncate_value
 from mcp_cad_core.responses import ToolError, ok, safe_tool
 from mcp_cad_core.sandbox import workspace_sandbox
-from mcp_ifc.model_cache import load_ifc
+from mcp_ifc.geometry_summary import element_bbox_summary, geometry_summary
+from mcp_ifc.model_cache import load_ifc, shape_summary_cache
 
 _logger = get_logger(__name__)
 
 
+def _resolve_input_path(ifc_path: str) -> Path:
+    """Sandbox-resolve ``ifc_path`` to an existing file inside the workspace."""
+    return workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
+
+
 def _resolve_input(ifc_path: str) -> ifcopenshell.file:
     """Sandbox-resolve ``ifc_path`` and return the parsed model."""
-    path = workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
-    return load_ifc(path)
+    return load_ifc(_resolve_input_path(ifc_path))
+
+
+def _shape_file_key(path: Path) -> str:
+    """Cache key for shape summaries: absolute path plus stat, so edits invalidate."""
+    stat = path.stat()
+    return f"{path}|{stat.st_mtime_ns}|{stat.st_size}"
 
 
 def _paged(items: list[Any], limit: int, offset: int) -> Page:
@@ -359,3 +371,76 @@ def _missing_required(required: list[str], psets: dict[str, dict[str, Any]]) -> 
         if not has_value:
             missing.append(prop)
     return missing
+
+
+@safe_tool
+def ifc_element_bbox(
+    ifc_path: str, global_id: str, include_children: bool = False
+) -> dict[str, Any]:
+    """Compute the 3D world bounding box, center, and triangle count of one IFC element.
+
+    Read-only geometry summary via the OCCT kernel (`ifcopenshell.geom`): returns
+    only bbox min/max, center, and `geometry_tris` - never vertex arrays or mesh
+    buffers. With `include_children` on a spatial element, the bbox is the union
+    of its contained elements (capped at 200 children). When the geometry kernel
+    is not installed the tool answers `not_implemented` instead of crashing.
+
+    Args:
+        ifc_path: Path to the .ifc file, relative to the workspace root.
+        global_id: 22-character IFC GlobalId of the element.
+        include_children: Union the bboxes of contained elements (spatial
+            containers), cap 200 children.
+
+    Returns:
+        Envelope with data: global_id, class, bbox {min, max}, center,
+        geometry_tris (and children_count when include_children is set).
+    """
+    path = _resolve_input_path(ifc_path)
+    model = load_ifc(path)
+    data = element_bbox_summary(
+        model,
+        shape_summary_cache(),
+        _shape_file_key(path),
+        global_id,
+        include_children=include_children,
+    )
+    data["ifc_path"] = ifc_path
+    return ok(data)
+
+
+@safe_tool
+def ifc_geometry_summary(
+    ifc_path: str,
+    class_filter: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Per-class geometry aggregates: count, bbox union, and smallest-footprint element.
+
+    Read-only rollup over all products (or one IFC class): for each class the
+    element count, the union bbox, and the element with the smallest bbox
+    footprint (`bbox_min_area_element` with global_id and name). Paginated,
+    hard cap 200 classes, and never any raw geometry - only bboxes and counts.
+    Requires the OCCT kernel (`ifcopenshell.geom`); otherwise `not_implemented`.
+
+    Args:
+        ifc_path: Path to the .ifc file, relative to the workspace root.
+        class_filter: Optional IFC class to restrict the rollup, e.g. IfcWall.
+        limit: Page size (1..200; values above 200 are clamped).
+        offset: Zero-based index of the first returned class row.
+
+    Returns:
+        Envelope with data.classes (paginated) plus pagination metadata.
+    """
+    path = _resolve_input_path(ifc_path)
+    model = load_ifc(path)
+    data, page = geometry_summary(
+        model,
+        shape_summary_cache(),
+        _shape_file_key(path),
+        class_filter=class_filter,
+        limit=limit,
+        offset=offset,
+    )
+    data["ifc_path"] = ifc_path
+    return ok(data, meta=page.meta())
