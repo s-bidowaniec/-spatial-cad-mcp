@@ -12,7 +12,8 @@ use crate::cad3d::{
     dxf_to_mesh,
 };
 use crate::parser::{
-    BBox3D, EntityRecord, LayerDetail, TextRecord, export_dxf_slice, parse_dxf_file,
+    BBox3D, EntityRecord, LayerDetail, TextRecord, detect_format, export_dxf_slice, parse_dxf_bytes,
+    parse_dxf_file,
 };
 use cad_envelope::{
     MAX_VALUE_CHARS, ToolError, paginate, resolve_input_file, run_envelope, truncate_value,
@@ -223,6 +224,10 @@ struct NameCount {
 #[derive(Debug, Serialize)]
 struct DxfSummaryData {
     dxf_path: String,
+    /// Detected input format: "dxf_ascii" | "dxf_binary" | "dwg" | "unknown".
+    format: String,
+    /// True for binary DXF and DWG inputs (rejected before parsing with unsupported_format).
+    binary: bool,
     acad_version: Option<String>,
     acad_release: Option<String>,
     insunits_code: Option<i32>,
@@ -264,7 +269,11 @@ impl DxfServer {
     ) -> String {
         run_envelope("dxf_summary", || {
             let resolved = resolve_input_file(&self.sandbox, &dxf_path)?;
-            let doc = parse_dxf_file(&resolved)?;
+            let raw = std::fs::read(&resolved).map_err(|e| {
+                ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}"))
+            })?;
+            let fmt = detect_format(&raw);
+            let doc = parse_dxf_bytes(&raw)?;
 
             let entity_types = doc
                 .entity_type_counts()
@@ -282,6 +291,8 @@ impl DxfServer {
 
             let data = DxfSummaryData {
                 dxf_path,
+                format: fmt.as_str().to_string(),
+                binary: fmt.is_binary(),
                 acad_version: doc.acad_version,
                 acad_release: doc.acad_release,
                 insunits_code: doc.insunits_code,
@@ -677,6 +688,8 @@ mod tests {
         assert_eq!(sum["ok"], true);
         assert_eq!(sum["data"]["total_entities"], 2);
         assert_eq!(sum["data"]["insunits"], "meters");
+        assert_eq!(sum["data"]["format"], "dxf_ascii");
+        assert_eq!(sum["data"]["binary"], false);
 
         let q: Value =
             serde_json::from_str(&srv.dxf_query_entities(Parameters(DxfQueryEntitiesParams {
@@ -840,6 +853,35 @@ mod tests {
         assert_eq!(lbl["data"]["report"]["z_min_out"], 100.0);
         assert_eq!(lbl["data"]["report"]["z_max_out"], 102.0);
         assert!(dir.join("outputs/elevated.dxf").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn format_detection_rejects_binary_and_dwg() {
+        let (dir, srv) = make_workspace("formats");
+
+        let mut bin = crate::parser::BINARY_DXF_MAGIC.to_vec();
+        bin.extend_from_slice(&[0u8; 24]);
+        fs::write(dir.join("binary_r12.dxf"), &bin).unwrap();
+        let bin_res: Value = serde_json::from_str(&srv.dxf_summary(Parameters(DxfSummaryParams {
+            dxf_path: "binary_r12.dxf".to_string(),
+        })))
+        .unwrap();
+        assert_eq!(bin_res["ok"], false);
+        assert_eq!(bin_res["error"]["code"], "unsupported_format");
+        assert!(!bin_res["error"]["hints"].as_array().unwrap().is_empty());
+
+        let mut dwg = b"AC1015".to_vec();
+        dwg.extend_from_slice(&[0x00, 0x01, 0x02, 0x03]);
+        fs::write(dir.join("drawing.dwg"), &dwg).unwrap();
+        let dwg_res: Value = serde_json::from_str(&srv.dxf_summary(Parameters(DxfSummaryParams {
+            dxf_path: "drawing.dwg".to_string(),
+        })))
+        .unwrap();
+        assert_eq!(dwg_res["ok"], false);
+        assert_eq!(dwg_res["error"]["code"], "unsupported_format");
+        assert!(dwg_res["error"]["message"].as_str().unwrap().contains("R2000"));
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -106,6 +106,80 @@ fn trim_ascii_bytes(b: &[u8]) -> &[u8] {
 
 /// Strip common AutoCAD TEXT/MTEXT control sequences (`%%d`, `%%p`, `%%c`,
 /// `%%u`, `\P`, `{\f...;...}`) into readable plain text.
+/// Magic header of AutoCAD Binary DXF files (`AutoCAD Binary DXF\r\n\x1a\0`).
+pub const BINARY_DXF_MAGIC: &[u8; 22] = b"AutoCAD Binary DXF\r\n\x1a\0";
+
+/// Detected input format of a CAD file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DxfFormat {
+    DxfAscii,
+    DxfBinary,
+    Dwg { version_code: Option<String> },
+    Unknown,
+}
+
+impl DxfFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DxfFormat::DxfAscii => "dxf_ascii",
+            DxfFormat::DxfBinary => "dxf_binary",
+            DxfFormat::Dwg { .. } => "dwg",
+            DxfFormat::Unknown => "unknown",
+        }
+    }
+
+    pub fn is_binary(&self) -> bool {
+        matches!(self, DxfFormat::DxfBinary | DxfFormat::Dwg { .. })
+    }
+}
+
+/// Detects whether raw bytes are ASCII DXF, Binary DXF, proprietary DWG, or unknown.
+pub fn detect_format(raw: &[u8]) -> DxfFormat {
+    if raw.starts_with(BINARY_DXF_MAGIC) {
+        return DxfFormat::DxfBinary;
+    }
+    if raw.len() >= 6 && &raw[..4] == b"AC10" && raw[4].is_ascii_digit() && raw[5].is_ascii_digit() {
+        return DxfFormat::Dwg {
+            version_code: Some(String::from_utf8_lossy(&raw[..6]).into_owned()),
+        };
+    }
+    if let Ok(text) = std::str::from_utf8(raw) {
+        let upper: String = text.chars().take(4096).collect::<String>().to_uppercase();
+        if upper.contains("SECTION")
+            && (upper.contains("ENTITIES") || upper.contains("HEADER") || upper.contains("EOF"))
+        {
+            return DxfFormat::DxfAscii;
+        }
+    }
+    DxfFormat::Unknown
+}
+
+/// Structured `unsupported_format` error for binary/DWG inputs, with conversion hints.
+pub fn unsupported_format_error(fmt: &DxfFormat) -> ToolError {
+    match fmt {
+        DxfFormat::DxfBinary => ToolError::new(
+            "unsupported_format",
+            "Binary DXF (R12+) is not parsed yet; convert to ASCII DXF (e.g. LibreDWG `dwg2dxf` or ODA File Converter) and retry.",
+        )
+        .with_hint("convert with LibreDWG/ODA File Converter to ASCII DXF")
+        .with_hint("then call dxf_summary again"),
+        DxfFormat::Dwg { version_code } => {
+            let code = version_code.as_deref().unwrap_or("unknown");
+            ToolError::new(
+                "unsupported_format",
+                format!(
+                    "Proprietary DWG ({code} / {}) is not supported directly; convert to ASCII DXF (e.g. LibreDWG `dwg2dxf` or ODA File Converter) and retry.",
+                    acad_version_label(code)
+                ),
+            )
+            .with_hint("convert DWG to ASCII DXF with LibreDWG (`dwg2dxf`) or ODA File Converter")
+            .with_hint("then call dxf_summary again")
+        }
+        _ => ToolError::new("unsupported_format", "unrecognized CAD format"),
+    }
+}
+
 pub fn strip_autocad_formatting(raw: &str) -> String {
     let mut s = raw
         .replace("\\P", "\n")
@@ -453,11 +527,9 @@ pub fn export_dxf_slice(
     let raw = std::fs::read(input_path).map_err(|e| {
         ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}"))
     })?;
-    if raw.starts_with(b"AutoCAD Binary DXF") {
-        return Err(ToolError::new(
-            "unsupported_format",
-            "Binary DXF is not supported yet. Convert the drawing to ASCII DXF and retry.",
-        ));
+    let fmt = detect_format(&raw);
+    if fmt.is_binary() {
+        return Err(unsupported_format_error(&fmt));
     }
 
     let (repaired_bytes, _) = repair_mesh_counts(&raw);
@@ -602,11 +674,9 @@ pub fn parse_dxf_file(path: &Path) -> Result<DxfDocument, ToolError> {
 }
 
 pub fn parse_dxf_bytes(raw: &[u8]) -> Result<DxfDocument, ToolError> {
-    if raw.starts_with(b"AutoCAD Binary DXF") {
-        return Err(ToolError::new(
-            "unsupported_format",
-            "Binary DXF is not supported yet. Convert the drawing to ASCII DXF and retry.",
-        ));
+    let fmt = detect_format(raw);
+    if fmt.is_binary() {
+        return Err(unsupported_format_error(&fmt));
     }
 
     let (repaired_bytes, mesh_counts_repaired) = repair_mesh_counts(raw);
@@ -1192,7 +1262,8 @@ fn parse_single_entity(
     (rec, pts, text_rec)
 }
 
-fn acad_version_label(code: &str) -> String {
+/// Maps AutoCAD `AC10xx` version codes to human-readable release labels.
+pub fn acad_version_label(code: &str) -> String {
     match code {
         "AC1009" => "R12".to_string(),
         "AC1012" => "R13".to_string(),
@@ -1356,5 +1427,48 @@ EOF
     fn rejects_binary_dxf() {
         let err = parse_dxf_bytes(b"AutoCAD Binary DXF\r\n\x1a\0").unwrap_err();
         assert_eq!(err.code, "unsupported_format");
+    }
+
+    #[test]
+    fn detect_format_recognizes_ascii_binary_dwg_unknown() {
+        let ascii = b"  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n  0\nENDSEC\n  0\nEOF\n";
+        assert_eq!(detect_format(ascii), DxfFormat::DxfAscii);
+        assert!(!detect_format(ascii).is_binary());
+
+        let mut bin = BINARY_DXF_MAGIC.to_vec();
+        bin.extend_from_slice(&[0u8; 32]);
+        assert_eq!(detect_format(&bin), DxfFormat::DxfBinary);
+        assert!(detect_format(&bin).is_binary());
+
+        let mut dwg = b"AC1027".to_vec();
+        dwg.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(
+            detect_format(&dwg),
+            DxfFormat::Dwg {
+                version_code: Some("AC1027".to_string())
+            }
+        );
+        assert!(detect_format(&dwg).is_binary());
+        assert_eq!(acad_version_label("AC1027"), "R2013");
+
+        assert_eq!(detect_format(b"\x00\x01\x02garbage"), DxfFormat::Unknown);
+    }
+
+    #[test]
+    fn parse_rejects_binary_and_dwg_with_hints() {
+        let mut bin = BINARY_DXF_MAGIC.to_vec();
+        bin.extend_from_slice(&[0u8; 16]);
+        let err = parse_dxf_bytes(&bin).unwrap_err();
+        assert_eq!(err.code, "unsupported_format");
+        assert!(err.message.contains("Binary DXF"));
+        assert!(!err.hints.is_empty());
+
+        let mut dwg = b"AC1015".to_vec();
+        dwg.extend_from_slice(&[0x00, 0x01, 0x02, 0x03]);
+        let err = parse_dxf_bytes(&dwg).unwrap_err();
+        assert_eq!(err.code, "unsupported_format");
+        assert!(err.message.contains("AC1015"));
+        assert!(err.message.contains("R2000"));
+        assert!(!err.hints.is_empty());
     }
 }
