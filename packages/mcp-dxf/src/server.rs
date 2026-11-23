@@ -6,11 +6,13 @@
 //! - `dxf_query_entities` — paginated compact entity listings filtered by layer,
 //!   type, elevation presence, and 2D bounding box.
 //! - `dxf_extract_text` — paginated cleaned `TEXT`/`MTEXT`/`ATTRIB` annotations.
+//! - `dxf_edit_entities` — mutating generic batch editor (select + ops, NEW file in outputs/).
 
 use crate::cad3d::{
     CenterlineReport, DxfToMeshReport, LabelsTo3dReport, compute_dxf_centerline, dxf_labels_to_3d,
     dxf_to_mesh,
 };
+use crate::edit::{DxfEditOp, DxfEditStats, DxfSelect, edit_dxf_entities};
 use crate::parser::{
     BBox3D, EntityRecord, LayerDetail, TextRecord, export_dxf_slice, parse_dxf_file,
 };
@@ -251,6 +253,30 @@ struct QueryEntitiesData {
 struct ExtractTextData {
     dxf_path: String,
     texts: Vec<TextRecord>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfEditEntitiesParams {
+    /// Path to the source ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub input_dxf: String,
+    /// Plain output file name (e.g. "edited.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_dxf_name: String,
+    /// AND-combined selection filters; all fields optional.
+    #[serde(default)]
+    pub select: Option<DxfSelect>,
+    /// Ordered edit operations applied to every selected entity (at least one required).
+    pub ops: Vec<DxfEditOp>,
+    /// Optional max number of entities to edit (hard cap 200, reported via meta.limit_clamped_to).
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct DxfEditEntitiesData {
+    dxf_path: String,
+    output: String,
+    #[serde(flatten)]
+    stats: DxfEditStats,
 }
 
 #[tool_router(server_handler)]
@@ -643,11 +669,68 @@ impl DxfServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Mutating tool: copy an ASCII DXF and apply a batch of edits (set_layer, set_color, set_linetype, set_lineweight, move, rotate, scale, delete) to entities selected by layer, entity_type, hex handle range, or 2D bbox. Writes a NEW DXF under `<workspace>/outputs/<output_dxf_name>`. Inputs are never modified; refuses to overwrite existing outputs."
+    )]
+    pub fn dxf_edit_entities(
+        &self,
+        Parameters(params): Parameters<DxfEditEntitiesParams>,
+    ) -> String {
+        run_envelope("dxf_edit_entities", || {
+            if params.ops.is_empty() {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "ops must contain at least one edit operation.",
+                ));
+            }
+            let name = params.output_dxf_name.replace('\\', "/");
+            if name.trim().is_empty()
+                || name.contains('/')
+                || name.contains("..")
+                || !name.to_ascii_lowercase().ends_with(".dxf")
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "output_dxf_name must be a plain .dxf file name without path separators.",
+                ));
+            }
+            let limit = match params.limit {
+                Some(l) if l <= 0 => {
+                    return Err(ToolError::new("invalid_input", "limit must be positive."));
+                }
+                Some(l) => Some(l as usize),
+                None => None,
+            };
+            let resolved_in = resolve_input_file(&self.sandbox, &params.input_dxf)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_dxf_name)
+                .map_err(ToolError::from_sandbox)?;
+            let default_select = DxfSelect::default();
+            let select = params.select.as_ref().unwrap_or(&default_select);
+            let (stats, limit_clamped_to) =
+                edit_dxf_entities(&resolved_in, &resolved_out, select, &params.ops, limit)?;
+            let mut meta = Map::new();
+            if let Some(clamped) = limit_clamped_to {
+                meta.insert("limit_clamped_to".to_string(), json!(clamped));
+            }
+            Ok((
+                DxfEditEntitiesData {
+                    dxf_path: params.input_dxf,
+                    output: format!("outputs/{}", params.output_dxf_name),
+                    stats,
+                },
+                Some(meta),
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::edit::DxfEditOp;
     use serde_json::Value;
     use std::fs;
 
@@ -840,6 +923,90 @@ mod tests {
         assert_eq!(lbl["data"]["report"]["z_min_out"], 100.0);
         assert_eq!(lbl["data"]["report"]["z_max_out"], 102.0);
         assert!(dir.join("outputs/elevated.dxf").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dxf_edit_entities_envelope_and_rejections() {
+        let (dir, srv) = make_workspace("edit");
+
+        let ok: Value = serde_json::from_str(&srv.dxf_edit_entities(Parameters(
+            DxfEditEntitiesParams {
+                input_dxf: "sample.dxf".to_string(),
+                output_dxf_name: "edited.dxf".to_string(),
+                select: Some(DxfSelect {
+                    layer: Some("road".to_string()),
+                    ..Default::default()
+                }),
+                ops: vec![
+                    DxfEditOp::Move { dx: 1.0, dy: 2.0 },
+                    DxfEditOp::SetColor { color: 5 },
+                ],
+                limit: Some(500),
+            },
+        )))
+        .unwrap();
+        assert_eq!(ok["ok"], true);
+        assert_eq!(ok["data"]["output"], "outputs/edited.dxf");
+        assert_eq!(ok["data"]["selected"], 1);
+        assert_eq!(ok["data"]["edited"], 1);
+        assert_eq!(ok["data"]["per_op"]["move"], 1);
+        assert_eq!(ok["meta"]["limit_clamped_to"], 200);
+        assert!(dir.join("outputs/edited.dxf").is_file());
+        assert!(dir.join("sample.dxf").is_file(), "input untouched");
+
+        let again: Value = serde_json::from_str(&srv.dxf_edit_entities(Parameters(
+            DxfEditEntitiesParams {
+                input_dxf: "sample.dxf".to_string(),
+                output_dxf_name: "edited.dxf".to_string(),
+                select: None,
+                ops: vec![DxfEditOp::Delete],
+                limit: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(again["ok"], false);
+        assert_eq!(again["error"]["code"], "output_exists");
+
+        let traversal: Value = serde_json::from_str(&srv.dxf_edit_entities(Parameters(
+            DxfEditEntitiesParams {
+                input_dxf: "../secret.dxf".to_string(),
+                output_dxf_name: "x.dxf".to_string(),
+                select: None,
+                ops: vec![DxfEditOp::Delete],
+                limit: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(traversal["ok"], false);
+        assert_eq!(traversal["error"]["code"], "path_traversal");
+
+        let missing: Value = serde_json::from_str(&srv.dxf_edit_entities(Parameters(
+            DxfEditEntitiesParams {
+                input_dxf: "nope.dxf".to_string(),
+                output_dxf_name: "x.dxf".to_string(),
+                select: None,
+                ops: vec![DxfEditOp::Delete],
+                limit: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(missing["ok"], false);
+        assert_eq!(missing["error"]["code"], "file_not_found");
+
+        let empty_ops: Value = serde_json::from_str(&srv.dxf_edit_entities(Parameters(
+            DxfEditEntitiesParams {
+                input_dxf: "sample.dxf".to_string(),
+                output_dxf_name: "x.dxf".to_string(),
+                select: None,
+                ops: vec![],
+                limit: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(empty_ops["ok"], false);
+        assert_eq!(empty_ops["error"]["code"], "invalid_input");
 
         let _ = fs::remove_dir_all(&dir);
     }
