@@ -213,6 +213,7 @@ impl GisServer {
                 validate_bbox(b)?;
             }
             let resolved = resolve_input_file(&self.sandbox, &params.dataset_path)?;
+            // spatial-cad-review[SC-04]: Materialize bounded pages and measure truncation on those rows.
             let (layer_name, mut features) = query_features(
                 &resolved,
                 params.layer.as_deref(),

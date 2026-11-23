@@ -110,6 +110,7 @@ impl WorkspaceSandbox {
         self.checked(self.root.join(normalized))
     }
 
+    // spatial-cad-review[SC-01]: Keep the directory check and exclusive publish in one API.
     /// Resolve a *new* output path under `<root>/outputs` for mutating tools.
     pub fn resolve_output(&self, file_name: &str) -> Result<PathBuf, SandboxError> {
         if file_name.is_empty()
@@ -135,6 +136,7 @@ impl WorkspaceSandbox {
         Ok(target)
     }
 
+    // spatial-cad-review[SC-01]: Fail closed on lookup errors and define the open-time policy.
     /// Canonicalize existing ancestors and enforce containment of the real path.
     fn checked(&self, candidate: PathBuf) -> Result<PathBuf, SandboxError> {
         let resolved = canonicalize_prefix(&candidate);

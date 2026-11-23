@@ -138,6 +138,7 @@ class WorkspaceSandbox:
             raise SandboxError("not_a_dir", f"Expected a directory, got something else: {relative}")
         return resolved
 
+    # spatial-cad-review[SC-01]: Match Rust output containment and no-overwrite semantics.
     def resolve_output(self, filename: str) -> Path:
         """Resolve a *new* output path under ``<root>/outputs`` for mutating tools.
 

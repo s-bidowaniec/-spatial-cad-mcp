@@ -110,6 +110,9 @@ server. `cad-sandbox` is the Rust twin of the Python sandbox and is shared by al
 Details: [`docs/architecture.md`](docs/architecture.md),
 [`docs/tool-design.md`](docs/tool-design.md), [`docs/security.md`](docs/security.md).
 
+The Polish-language [implementation review and Gemini task packs](docs/gemini-review/README.md)
+cover workspace safety, format interoperability, and MCP integration.
+
 ## CI
 
 `.github/workflows/ci.yml` runs ruff + pytest (Python) and cargo check/clippy/test (Rust)

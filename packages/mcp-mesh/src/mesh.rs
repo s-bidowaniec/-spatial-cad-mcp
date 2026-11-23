@@ -139,6 +139,7 @@ pub fn load_mesh_file(path: &Path) -> Result<Mesh, ToolError> {
 }
 
 /// Parse SMS `.2dm` unstructured 2D/3D mesh (`ND`, `E3T`, `E4Q`).
+// spatial-cad-review[SC-02]: Validate IDs, references, numeric values and supported cards.
 pub fn parse_2dm(text: &str) -> Result<Mesh, ToolError> {
     let mut node_rows: Vec<(i64, [f64; 3])> = Vec::new();
     let mut elem_rows: Vec<(i64, Vec<i64>, i64)> = Vec::new();
@@ -959,6 +960,7 @@ fn barycentric_tri_z(p: [f64; 2], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Opti
 
 /// Deterministic barycentric 2D point-in-face elevation lookup across a mesh.
 /// When overlapping faces exist, picks the highest Z deterministically.
+// spatial-cad-review[SC-03]: Define deterministic samples where XY faces overlap.
 pub fn sample_elevations(mesh: &Mesh, points: &[[f64; 2]]) -> Vec<ElevationSample> {
     // Precompute per-face XY AABB for fast rejection
     let face_aabbs: Vec<[f64; 4]> = mesh
@@ -1099,6 +1101,7 @@ pub fn sample_section_line(
 }
 
 /// Write a `Mesh` to a `.2dm` or `.obj` file.
+// spatial-cad-review[SC-02]: Use one SMS export profile and verify the output round trip.
 fn write_mesh_file(mesh: &Mesh, output_path: &Path) -> Result<(), ToolError> {
     let ext = output_path
         .extension()
@@ -1211,6 +1214,7 @@ pub fn write_bbox_slice(
         vertices: new_verts,
         faces: kept_faces,
     };
+    // spatial-cad-review[SC-02]: Give empty selections an explicit result before publishing.
     write_mesh_file(&sliced, output_path)?;
     Ok((sliced.vertices.len(), sliced.faces.len()))
 }
@@ -1241,6 +1245,7 @@ pub struct MeshDiffSummary {
 
 /// Compare two meshes (before vs after): vertex/face deltas, XY-matched elevation
 /// statistics, and face-ID topology/part diff.
+// spatial-cad-review[SC-03]: Match by distance and report ambiguous XY correspondences.
 pub fn diff_meshes(before: &Mesh, after: &Mesh, xy_tol: f64) -> MeshDiffSummary {
     let inv = 1.0 / xy_tol.max(1e-9);
     let key_xy = |v: [f64; 3]| -> [i64; 2] { [(v[0] * inv).round() as i64, (v[1] * inv).round() as i64] };

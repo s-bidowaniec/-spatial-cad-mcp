@@ -39,6 +39,7 @@ class IfcModelCache:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._lock = threading.Lock()
 
+    # spatial-cad-review[SC-06]: Keep cache lookup and promotion atomic and verify file identity.
     def load(self, path: Path) -> ifcopenshell.file:
         """Return the parsed model for ``path``, opening/refreshing if stale."""
         stat = path.stat()  # sandbox guarantees existence before we get here

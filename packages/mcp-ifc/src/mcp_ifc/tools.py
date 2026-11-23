@@ -163,6 +163,7 @@ def ifc_query_elements(
         )
     class_name = ifc_class.strip()
 
+    # spatial-cad-review[SC-06]: Bound regex matching and compact only the returned page.
     pattern: re.Pattern[str] | None = None
     if name_pattern is not None and name_pattern != "":
         try:
@@ -225,6 +226,7 @@ def ifc_get_psets(ifc_path: str, global_id: str) -> dict[str, Any]:
             details={"global_id": guid},
         ) from exc
 
+    # spatial-cad-review[SC-06]: Bound total response size for property-heavy elements.
     raw_psets: dict[str, dict[str, Any]] = ifcopenshell.util.element.get_psets(element)
     psets: dict[str, dict[str, Any]] = {}
     property_count = 0

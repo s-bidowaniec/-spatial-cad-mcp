@@ -51,6 +51,7 @@ struct SandboxCheckResult {
 fn main() -> Result<()> {
     match Cli::parse() {
         Cli::Inspect { path, top } => {
+            // spatial-cad-review[SC-01]: Enforce the workspace contract for inspection.
             let summary = ifc::inspect(&path, top)?;
             println!("{}", serde_json::to_string(&summary)?);
         }

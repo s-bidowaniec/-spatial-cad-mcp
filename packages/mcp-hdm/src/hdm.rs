@@ -626,6 +626,7 @@ struct SelafinHeader {
     body_offset: usize,
 }
 
+// spatial-cad-review[SC-05]: Validate record shapes before using dimensions or allocating.
 fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
     let mut r = FortranReader::new(raw);
     let title_rec = r.next_record()?;
@@ -712,6 +713,7 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
     })
 }
 
+// spatial-cad-review[SC-05]: Distinguish clean EOF from an incomplete time step.
 fn summarize_selafin(path: &Path) -> Result<HdmSummary, ToolError> {
     let raw = std::fs::read(path)
         .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read Selafin file: {e}")))?;
@@ -1098,6 +1100,7 @@ fn query_swmm_series(path: &Path, name: &str) -> Result<ExtractedSeries, ToolErr
 
 // ---------- SMS .2dm Mesh Summary ----------
 
+// spatial-cad-review[SC-02]: Share SMS card validation and consistent counts with mesh.
 fn summarize_2dm(path: &Path) -> Result<HdmSummary, ToolError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read .2dm: {e}")))?;
