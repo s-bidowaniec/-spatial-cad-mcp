@@ -61,10 +61,11 @@ def ifc_query_elements(
     ifc_path: str,
     ifc_class: str = "IfcProduct",
     name_pattern: str | None = None,
+    container_global_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    """List IFC elements page by page, filtered by IFC class and/or a name regex.
+    """List IFC elements page by page, filtered by IFC class, name regex, and/or container.
 
     Returns compact descriptors (GlobalId, class, name, predefined type,
     container) - never geometry. Use ifc_get_psets on a returned GlobalId.
@@ -75,10 +76,40 @@ def ifc_query_elements(
             IfcSpace. Default: IfcProduct (all building elements).
         name_pattern: Optional case-insensitive regex matched against Name,
             e.g. "Wall.*[0-9]". Invalid regex -> invalid_input error.
+        container_global_id: Optional GlobalId of a spatial container
+            (storey/site/building); only elements contained in it via
+            IfcRelContainedInSpatialStructure are returned.
         limit: Page size, 1..200 (larger values are clamped).
         offset: Zero-based index of the first returned element.
     """
-    return t.ifc_query_elements(ifc_path, ifc_class, name_pattern, limit, offset)
+    return t.ifc_query_elements(
+        ifc_path, ifc_class, name_pattern, container_global_id, limit, offset
+    )
+
+
+@mcp.tool()
+def ifc_query_spatial(
+    ifc_path: str,
+    root_global_id: str | None = None,
+    depth: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> dict:
+    """Browse the IFC spatial hierarchy (site > building > storeys > containers).
+
+    Read-only tree walk over IfcRelAggregates from the project/site root (or
+    root_global_id) up to depth levels, with containment counts per container.
+    Rows are compact: global_id, class, name, level, parent_global_id,
+    contained_elements; ordered by (level, class, name) and paginated.
+
+    Args:
+        ifc_path: Path to the .ifc file relative to the workspace root.
+        root_global_id: Optional GlobalId to start the walk from.
+        depth: Max tree depth, default 3, allowed 1..=10.
+        limit: Page size, default 50, hard cap 200 (meta.limit_clamped_to).
+        offset: Zero-based pagination offset.
+    """
+    return t.ifc_query_spatial(ifc_path, root_global_id, depth, limit, offset)
 
 
 @mcp.tool()

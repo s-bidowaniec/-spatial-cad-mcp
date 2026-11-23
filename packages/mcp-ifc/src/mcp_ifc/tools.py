@@ -25,6 +25,7 @@ from mcp_cad_core.pagination import Page, PaginationError, paginate, truncate_va
 from mcp_cad_core.responses import ToolError, ok, safe_tool
 from mcp_cad_core.sandbox import workspace_sandbox
 from mcp_ifc.model_cache import load_ifc
+from mcp_ifc.spatial import filter_elements_by_container, query_spatial_hierarchy
 
 _logger = get_logger(__name__)
 
@@ -133,10 +134,11 @@ def ifc_query_elements(
     ifc_path: str,
     ifc_class: str = "IfcProduct",
     name_pattern: str | None = None,
+    container_global_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """List IFC elements page by page, optionally filtered by class and name.
+    """List IFC elements page by page, optionally filtered by class, name, and container.
 
     Returns only compact element descriptors (GlobalId, class, name,
     predefined type, spatial container) - never geometry. Use
@@ -149,6 +151,9 @@ def ifc_query_elements(
         name_pattern: Optional case-insensitive regular expression matched
             against element Name (e.g. "Wall.*[0-9]"). Invalid regexes are
             reported as invalid_input errors.
+        container_global_id: Optional GlobalId of a spatial container
+            (storey/site/building); only elements contained in it via
+            IfcRelContainedInSpatialStructure are returned.
         limit: Page size (1..200; values above 200 are clamped).
         offset: Zero-based index of the first returned element.
 
@@ -184,12 +189,51 @@ def ifc_query_elements(
 
     if pattern is not None:
         elements = [e for e in elements if pattern.search(getattr(e, "Name", None) or "")]
+    elements = filter_elements_by_container(model, elements, container_global_id)
     page = _paged([_compact_element(e) for e in elements], limit, offset)
     data = {
         "ifc_path": ifc_path,
-        "query": {"ifc_class": class_name, "name_pattern": name_pattern or None},
+        "query": {
+            "ifc_class": class_name,
+            "name_pattern": name_pattern or None,
+            "container_global_id": container_global_id or None,
+        },
         "elements": page.items,
     }
+    return ok(data, meta=page.meta())
+
+
+@safe_tool
+def ifc_query_spatial(
+    ifc_path: str,
+    root_global_id: str | None = None,
+    depth: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Browse the IFC spatial hierarchy (site > building > storeys > containers).
+
+    Read-only tree walk over IfcRelAggregates from the project/site root (or
+    ``root_global_id``) up to ``depth`` levels, with containment counts via
+    IfcRelContainedInSpatialStructure. Rows are compact (global_id, class,
+    name, level, parent_global_id, contained_elements) and deterministically
+    ordered by (level, class, name).
+
+    Args:
+        ifc_path: Path to the .ifc file, relative to the workspace root.
+        root_global_id: Optional GlobalId to start from instead of the root.
+        depth: Max tree depth (default 3, allowed 1..=10).
+        limit: Page size (default 50, hard cap 200 with meta.limit_clamped_to).
+        offset: Zero-based pagination offset.
+
+    Returns:
+        Envelope with data.rows plus total/offset/limit/has_more.
+    """
+    model = _resolve_input(ifc_path)
+    data, page = query_spatial_hierarchy(
+        model, root_global_id=root_global_id, depth=depth, limit=limit, offset=offset
+    )
+    data["ifc_path"] = ifc_path
     return ok(data, meta=page.meta())
 
 

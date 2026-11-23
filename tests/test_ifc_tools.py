@@ -172,6 +172,7 @@ class TestServerRegistration:
         names = {tool.name for tool in registered}
         assert names == {
             "ifc_summary",
+            "ifc_query_spatial",
             "ifc_query_elements",
             "ifc_get_psets",
             "ifc_validate_required_props",
