@@ -56,7 +56,8 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
 3. Read-only tools are separate from mutating tools. Mutators (`dxf_export_slice`, `dxf_to_mesh`,
    `dxf_centerline`, `dxf_labels_to_3d`, `gis_export_bbox`, `hdm_export_slice`, `mesh_slice_bbox`,
    `mesh_improve_flips`, `mesh_cut_plane`, `mesh_volumes_intersect` with `output_dxf_name`,
-   `mesh_to_dxf`) always write a **new** file under `<workspace>/outputs` and return a structured
+   `mesh_to_dxf`, `ifc_export_submodel` with `output_name`) always write a **new** file under
+   `<workspace>/outputs` and return a structured
    diff - inputs are never modified.
 4. All file arguments are relative to `MCP_CAD_WORKSPACE_ROOT`. `..` traversal,
    outside-absolute paths and symlink escapes are rejected; do not try to work around the
@@ -73,7 +74,7 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
 
 | Group | Package | Language | Tools (bold = implemented) |
 | --- | --- | --- | --- |
-| BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_elements**, **ifc_get_psets**, **ifc_validate_required_props** |
+| BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_elements**, **ifc_get_psets**, **ifc_validate_required_props**, **ifc_export_submodel** (mutating) |
 | CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_layers**, **dxf_query_entities**, **dxf_extract_text**, **dxf_export_slice**, **dxf_to_mesh**, **dxf_centerline**, **dxf_labels_to_3d** |
 | GIS | `packages/mcp-gis` | Rust (rusqlite + rmcp) | **gis_summary**, **gis_extract_schema**, **gis_query_features**, **gis_query_point**, **gis_export_bbox** |
 | HDM | `packages/mcp-hdm` | Rust (pure Rust + rmcp) | **hdm_summary**, **hdm_query_timeseries**, **hdm_query_profiles**, **hdm_export_slice** |

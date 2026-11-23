@@ -1,7 +1,8 @@
 """FastMCP server entry point for mcp-ifc (stdio transport).
 
-Starts a read-only IFC inspection/query/validation server. Paths given
-to tools are always resolved inside ``MCP_CAD_WORKSPACE_ROOT``.
+Starts an IFC inspection/query/validation server plus one mutating tool
+(``ifc_export_submodel``). Paths given to tools are always resolved inside
+``MCP_CAD_WORKSPACE_ROOT``.
 
 Usage::
 
@@ -10,7 +11,7 @@ Usage::
 The MCP-exposed tool functions below deliberately mirror the names in
 ``mcp_ifc.tools`` (separate module namespace) so that the wire tool names
 stay agent-friendly: `ifc_summary`, `ifc_query_elements`, `ifc_get_psets`,
-`ifc_validate_required_props`.
+`ifc_validate_required_props`, `ifc_export_submodel`.
 """
 
 from __future__ import annotations
@@ -30,14 +31,15 @@ _logger = get_logger("mcp-ifc")
 mcp = FastMCP(
     name="mcp-ifc",
     instructions=(
-        "Read-only IFC/BIM inspection tools. Start with ifc_summary to orient yourself, "
+        "IFC/BIM inspection, query and validation tools, plus the mutating "
+        "ifc_export_submodel. Start with ifc_summary to orient yourself, "
         "then ifc_query_elements to list elements, then ifc_get_psets or "
         "ifc_validate_required_props for details. All tools return JSON envelopes: "
         '{"ok": true, "data": ..., "meta": ...} on success, '
         '{"ok": false, "error": {"code": ..., "message": ...}} on failure. '
         "Paths are relative to the workspace root and sandboxed; traversal is rejected. "
-        "Mutating tools (when added) always write new files under outputs/ and return "
-        "diffs; this server never modifies input files."
+        "The mutating tool always writes a new file under outputs/ and returns "
+        "a summary; input files are never modified."
     ),
 )
 
@@ -120,6 +122,34 @@ def ifc_validate_required_props(
         offset: Zero-based index of the first returned issue record.
     """
     return t.ifc_validate_required_props(ifc_path, ifc_class, properties, pset_name, limit, offset)
+
+
+@mcp.tool()
+def ifc_export_submodel(
+    ifc_path: str,
+    output_name: str,
+    class_filter: list[str] | None = None,
+    global_ids: list[str] | None = None,
+    container_global_id: str | None = None,
+) -> dict:
+    """Export matching IFC products to a NEW file under `<workspace>/outputs/` (mutating).
+
+    Requires at least one selector: class_filter, global_ids (cap 200), and/or
+    container_global_id. The input file is never modified; the new output file
+    is validated by re-opening before ok is returned. Existing output names are
+    refused (output_exists).
+
+    Args:
+        ifc_path: Path to the source .ifc file relative to the workspace root.
+        output_name: Plain `.ifc` file name for the new file under `outputs/`.
+        class_filter: Optional IFC classes to keep, e.g. ["IfcWall", "IfcSlab"].
+        global_ids: Optional GlobalIds to keep (cap 200, clamped).
+        container_global_id: Optional spatial container GlobalId; exports its
+            contained elements.
+    """
+    return t.ifc_export_submodel(
+        ifc_path, output_name, class_filter, global_ids, container_global_id
+    )
 
 
 def main() -> None:
