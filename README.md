@@ -19,11 +19,11 @@ Four basic tool groups:
 | Group | Package | Scope | Status |
 | --- | --- | --- | --- |
 | BIM | `mcp-ifc` | IFC models: summary, element queries, psets, validation | MVP (Python) |
-| CAD | `mcp-dxf` | 2D/3D ASCII DXF: summary, LibreDWG mesh repair, Z=0 audit, entity & text queries | MVP (Rust) |
+| CAD | `mcp-dxf` | 2D/3D ASCII DXF: summary, LibreDWG mesh repair, Z=0 audit, layer/entity/text queries, lossless slice export | MVP (Rust) |
 | GIS | `mcp-gis` | GeoPackage (`.gpkg`) & GeoJSON: summary, CRS audit, schema, feature queries, bbox export | MVP (Rust) |
-| HDM | `mcp-hdm` | Open-standard HDM (TELEMAC Selafin `.slf`/`.res`, EPA SWMM `.inp`, SMS `.2dm`): summary & time series | MVP (Rust) |
+| HDM | `mcp-hdm` | Open-standard HDM (TELEMAC Selafin `.slf`/`.res`, EPA SWMM `.inp`, SMS `.2dm`): summary, time series, profiles, CSV export | MVP (Rust) |
 
-plus 2D/3D mesh inspection, QA & bbox slicing (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
+plus 2D/3D mesh inspection, QA, elevation sampling, cross-section lines & bbox slicing (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
 
 Monorepo layout (Python where the ecosystem is strongest, Rust everywhere else):
 
@@ -31,10 +31,10 @@ Monorepo layout (Python where the ecosystem is strongest, Rust everywhere else):
 spatial-cad-mcp/
 ├── packages/
 │   ├── mcp-ifc/          # MVP server: IFC inspection/query/validation (Python, ifcopenshell)
-│   ├── mcp-dxf/          # MVP server: ASCII DXF summary, entity & text queries (pure Rust, rmcp)
+│   ├── mcp-dxf/          # MVP server: ASCII DXF summary, layer/entity/text queries & slice export (pure Rust, rmcp)
 │   ├── mcp-gis/          # MVP server: GeoPackage & GeoJSON summary, schema, queries, bbox export (Rust, rusqlite, rmcp)
-│   ├── mcp-hdm/          # MVP server: TELEMAC Selafin, SWMM .inp, SMS .2dm summary & time series (pure Rust, rmcp)
-│   └── mcp-mesh/         # MVP server: 2D/3D mesh (.2dm/.obj/.stl) topology, QA & bbox slice (pure Rust, rmcp)
+│   ├── mcp-hdm/          # MVP server: TELEMAC Selafin, SWMM .inp, SMS .2dm summary, time series, profiles & CSV export (pure Rust, rmcp)
+│   └── mcp-mesh/         # MVP server: 2D/3D mesh (.2dm/.obj/.stl) topology, QA, elevation/sections & bbox slice (pure Rust, rmcp)
 ├── shared/
 │   └── mcp_cad_core/     # sandboxing, response envelopes, pagination, stderr logging (Python)
 ├── crates/
@@ -87,10 +87,10 @@ MCP client config: see [`examples/mcp.json`](examples/mcp.json).
 cargo check --workspace   # build all Rust crates
 cargo test --workspace    # cad-sandbox unit tests etc.
 cargo run -p cadctl -- inspect path/to/model.ifc --top 10
-cargo run -p mcp-dxf      # scaffold MCP server over stdio (rmcp 3.x)
-cargo run -p mcp-gis      # scaffold MCP server over stdio (rmcp 3.x)
-cargo run -p mcp-hdm      # scaffold MCP server over stdio (rmcp 3.x)
-cargo run -p mcp-mesh     # scaffold MCP server over stdio (rmcp 3.x)
+cargo run -p mcp-dxf      # ASCII DXF MCP server over stdio (rmcp 3.x)
+cargo run -p mcp-gis      # GeoPackage/GeoJSON MCP server over stdio (rmcp 3.x)
+cargo run -p mcp-hdm      # HDM (Selafin/SWMM/2dm) MCP server over stdio (rmcp 3.x)
+cargo run -p mcp-mesh     # 2D/3D mesh MCP server over stdio (rmcp 3.x)
 ```
 
 `cadctl` inspects IFC files (STEP header + entity class counts) in a single streaming pass,
@@ -100,8 +100,9 @@ server. `cad-sandbox` is the Rust twin of the Python sandbox and is shared by al
 ## Tool design and security
 
 - Compact, deterministic, context-safe responses; large data is paginated (limit cap: 200).
-- Read-only tools are separate from mutating tools; mutators (roadmap) always write a **new**
-  file under `<workspace>/outputs` and return a structured diff - never modify inputs.
+- Read-only tools are separate from mutating tools; mutators (`dxf_export_slice`, `gis_export_bbox`,
+  `hdm_export_slice`, `mesh_slice_bbox`) always write a **new** file under `<workspace>/outputs`
+  and return a structured diff - never modify inputs.
 - All paths resolve inside `MCP_CAD_WORKSPACE_ROOT`; `..` traversal, outside-absolute paths and
   symlink escapes are rejected with machine-readable error codes.
 - Logging goes to **stderr only**; stdout is reserved for the MCP stdio transport.

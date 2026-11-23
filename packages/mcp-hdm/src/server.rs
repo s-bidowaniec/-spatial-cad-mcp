@@ -14,9 +14,10 @@
 //!   summary statistics (`min`/`max`/`mean`).
 
 use crate::hdm::{
-    HdmFormat, HdmSummary, SeriesPoint, SeriesStats, query_timeseries, summarize_hdm,
+    HdmFormat, HdmSummary, ProfilePayload, SeriesPoint, SeriesStats, export_timeseries_csv,
+    query_profiles, query_timeseries, summarize_hdm,
 };
-use cad_envelope::{paginate, resolve_input_file, run_envelope};
+use cad_envelope::{ToolError, paginate, resolve_input_file, run_envelope};
 use cad_sandbox::WorkspaceSandbox;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{schemars, tool, tool_router};
@@ -58,6 +59,60 @@ pub struct HdmQueryTimeseriesParams {
     /// Zero-based pagination offset (default 0).
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct HdmQueryProfilesParams {
+    /// Path to the HDM file (.slf, .res, .inp), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub hdm_path: String,
+    /// Variable name for TELEMAC Selafin line profiles (e.g. "WATER DEPTH"). Omit for SWMM conduit profiles.
+    #[serde(default)]
+    pub variable: Option<String>,
+    /// Optional 0-based time step index for TELEMAC Selafin (defaults to the final time step).
+    #[serde(default)]
+    pub time_step: Option<usize>,
+    /// Section start [x0, y0] (required for TELEMAC Selafin line profiles).
+    #[serde(default)]
+    pub start: Option<[f64; 2]>,
+    /// Section end [x1, y1] (required for TELEMAC Selafin line profiles).
+    #[serde(default)]
+    pub end: Option<[f64; 2]>,
+    /// Number of samples along a Selafin section line (default 50, range 2..=200).
+    #[serde(default)]
+    pub samples: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct HdmExportSliceParams {
+    /// Path to the source HDM file (.slf, .res, .inp), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub hdm_path: String,
+    /// Variable name (for TELEMAC Selafin) or time-series name (for SWMM .inp).
+    pub series_name: String,
+    /// Plain output CSV file name (e.g. "station_depth.csv") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Optional 0-based mesh node index (for TELEMAC Selafin).
+    #[serde(default)]
+    pub node_index: Option<usize>,
+    /// Optional [x, y] coordinates to snap to the nearest mesh node (for TELEMAC Selafin).
+    #[serde(default)]
+    pub xy: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Serialize)]
+struct HdmProfileData {
+    hdm_path: String,
+    #[serde(flatten)]
+    profile: ProfilePayload,
+}
+
+#[derive(Debug, Serialize)]
+struct HdmExportData {
+    hdm_path: String,
+    format: HdmFormat,
+    series_name: String,
+    output_path: String,
+    rows_written: usize,
+    stats: SeriesStats,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,6 +186,74 @@ impl HdmServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Read-only profile extractor: interpolates a TELEMAC Selafin (.slf/.res) variable along a 2D section line (start -> end, 2..=200 samples) at a time step, or returns EPA SWMM (.inp) conduit longitudinal profiles with invert elevations and slopes."
+    )]
+    pub fn hdm_query_profiles(
+        &self,
+        Parameters(params): Parameters<HdmQueryProfilesParams>,
+    ) -> String {
+        run_envelope("hdm_query_profiles", || {
+            let n = params.samples.unwrap_or(50);
+            if !(2..=200).contains(&n) {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "samples must be between 2 and 200.",
+                ));
+            }
+            let resolved = resolve_input_file(&self.sandbox, &params.hdm_path)?;
+            let profile = query_profiles(
+                &resolved,
+                params.variable.as_deref(),
+                params.time_step,
+                params.start,
+                params.end,
+                n,
+            )?;
+            Ok((
+                HdmProfileData {
+                    hdm_path: params.hdm_path,
+                    profile,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: export a TELEMAC Selafin node/XY time series or EPA SWMM `[TIMESERIES]` to a NEW CSV file under `<workspace>/outputs/<output_name>`. Never modifies inputs and refuses to overwrite existing outputs."
+    )]
+    pub fn hdm_export_slice(
+        &self,
+        Parameters(params): Parameters<HdmExportSliceParams>,
+    ) -> String {
+        run_envelope("hdm_export_slice", || {
+            let resolved_in = resolve_input_file(&self.sandbox, &params.hdm_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let res = export_timeseries_csv(
+                &resolved_in,
+                &params.series_name,
+                params.node_index,
+                params.xy,
+                &resolved_out,
+            )?;
+            Ok((
+                HdmExportData {
+                    hdm_path: params.hdm_path,
+                    format: res.format,
+                    series_name: res.series_name,
+                    output_path: format!("outputs/{}", params.output_name),
+                    rows_written: res.rows_written,
+                    stats: res.stats,
+                },
+                None,
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -144,7 +267,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mcp-hdm-srv-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let inp = "[TITLE]\nDemo\n[OPTIONS]\nFLOW_UNITS CMS\n[JUNCTIONS]\nJ1 10 1\n[TIMESERIES]\nRAIN 0:00 1.2\nRAIN 1:00 3.4\n";
+        let inp = "[TITLE]\nDemo\n[OPTIONS]\nFLOW_UNITS CMS\n[JUNCTIONS]\nJ1 10 1\nJ2 9 1\n[CONDUITS]\nC1 J1 J2 100 0.013\n[TIMESERIES]\nRAIN 0:00 1.2\nRAIN 1:00 3.4\n";
         fs::write(dir.join("net.inp"), inp).unwrap();
 
         let srv = HdmServer::new(WorkspaceSandbox::from_root(&dir).unwrap());
@@ -168,6 +291,34 @@ mod tests {
         .unwrap();
         assert_eq!(ts["ok"], true);
         assert_eq!(ts["data"]["stats"]["count"], 2);
+
+        let prof: Value = serde_json::from_str(&srv.hdm_query_profiles(Parameters(
+            HdmQueryProfilesParams {
+                hdm_path: "net.inp".to_string(),
+                variable: None,
+                time_step: None,
+                start: None,
+                end: None,
+                samples: None,
+            },
+        )))
+        .unwrap();
+        assert_eq!(prof["ok"], true);
+        assert_eq!(prof["data"]["kind"], "swmm_conduits");
+        assert_eq!(prof["data"]["conduits"][0]["slope"], 0.01);
+
+        let exp: Value =
+            serde_json::from_str(&srv.hdm_export_slice(Parameters(HdmExportSliceParams {
+                hdm_path: "net.inp".to_string(),
+                series_name: "RAIN".to_string(),
+                output_name: "rain.csv".to_string(),
+                node_index: None,
+                xy: None,
+            })))
+            .unwrap();
+        assert_eq!(exp["ok"], true);
+        assert_eq!(exp["data"]["rows_written"], 2);
+        assert!(dir.join("outputs/rain.csv").is_file());
 
         let bad: Value = serde_json::from_str(&srv.hdm_summary(Parameters(HdmSummaryParams {
             hdm_path: "../outside.inp".to_string(),

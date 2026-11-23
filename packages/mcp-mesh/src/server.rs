@@ -12,8 +12,9 @@
 //!   angle thresholds, neighbor area ratio, validity flags, or 2D/3D bbox.
 
 use crate::mesh::{
-    BBox3D, FaceQuality, MeshFormat, PartSummary, QualitySummary, TopologySummary, analyze_mesh,
-    load_mesh_file, write_bbox_slice,
+    BBox3D, ElevationSample, FaceQuality, MeshFormat, PartSummary, QualitySummary, SectionSample,
+    SectionStats, TopologySummary, analyze_mesh, load_mesh_file, sample_elevations,
+    sample_section_line, write_bbox_slice,
 };
 use cad_envelope::{ToolError, paginate, resolve_input_file, run_envelope};
 use cad_sandbox::WorkspaceSandbox;
@@ -77,6 +78,43 @@ pub struct MeshQueryQualityParams {
     /// Zero-based pagination offset (default 0).
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshSampleElevationParams {
+    /// Path to the mesh file (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub mesh_path: String,
+    /// List of 2D query points [[x, y], ...] (max 200 points per call).
+    pub points: Vec<[f64; 2]>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshSectionLineParams {
+    /// Path to the mesh file (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub mesh_path: String,
+    /// Section start point [x0, y0].
+    pub start: [f64; 2],
+    /// Section end point [x1, y1].
+    pub end: [f64; 2],
+    /// Number of evenly spaced stations along the section (default 50, range 2..=200).
+    #[serde(default)]
+    pub samples: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshSampleElevationData {
+    mesh_path: String,
+    hit_count: usize,
+    samples: Vec<ElevationSample>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshSectionLineData {
+    mesh_path: String,
+    start: [f64; 2],
+    end: [f64; 2],
+    stats: SectionStats,
+    profile: Vec<SectionSample>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -269,6 +307,84 @@ impl MeshServer {
     }
 
     #[tool(
+        description = "Read-only barycentric 2D point-in-face elevation sampler for a surface mesh (.2dm, .obj, .stl). Accepts up to 200 [x, y] points per call and returns interpolated Z, face_id, and part (or z: null outside the surface)."
+    )]
+    pub fn mesh_sample_elevation(
+        &self,
+        Parameters(params): Parameters<MeshSampleElevationParams>,
+    ) -> String {
+        run_envelope("mesh_sample_elevation", || {
+            if params.points.is_empty() || params.points.len() > 200 {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "points must contain between 1 and 200 [x, y] pairs.",
+                ));
+            }
+            if params
+                .points
+                .iter()
+                .any(|p| !p[0].is_finite() || !p[1].is_finite())
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "All query coordinates must be finite numbers.",
+                ));
+            }
+            let resolved = resolve_input_file(&self.sandbox, &params.mesh_path)?;
+            let mesh = load_mesh_file(&resolved)?;
+            let samples = sample_elevations(&mesh, &params.points);
+            let hit_count = samples.iter().filter(|s| s.z.is_some()).count();
+            Ok((
+                MeshSampleElevationData {
+                    mesh_path: params.mesh_path,
+                    hit_count,
+                    samples,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Read-only vertical cross-section sampler along a 2D line segment (start -> end) across a 3D surface mesh (.2dm, .obj, .stl). Returns station-elevation samples (2..=200) plus length and min/max/mean Z stats."
+    )]
+    pub fn mesh_section_line(
+        &self,
+        Parameters(params): Parameters<MeshSectionLineParams>,
+    ) -> String {
+        run_envelope("mesh_section_line", || {
+            if !params.start.iter().all(|v| v.is_finite())
+                || !params.end.iter().all(|v| v.is_finite())
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "start and end must be finite [x, y] coordinates.",
+                ));
+            }
+            let n = params.samples.unwrap_or(50);
+            if !(2..=200).contains(&n) {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "samples must be between 2 and 200.",
+                ));
+            }
+            let resolved = resolve_input_file(&self.sandbox, &params.mesh_path)?;
+            let mesh = load_mesh_file(&resolved)?;
+            let (stats, profile) = sample_section_line(&mesh, params.start, params.end, n);
+            Ok((
+                MeshSectionLineData {
+                    mesh_path: params.mesh_path,
+                    start: params.start,
+                    end: params.end,
+                    stats,
+                    profile,
+                },
+                None,
+            ))
+        })
+    }
+
+    #[tool(
         description = "Mutating tool: clip faces intersecting a 2D XY bbox [min_x, min_y, max_x, max_y] into a NEW `.obj` or `.2dm` file under `<workspace>/outputs/<output_name>`. Never modifies the input mesh and refuses to overwrite existing outputs."
     )]
     pub fn mesh_slice_bbox(
@@ -395,6 +511,33 @@ E4Q 2 1 3 4 5 2
             .unwrap();
         assert_eq!(dup["ok"], false);
         assert_eq!(dup["error"]["code"], "output_exists");
+
+        let elev: Value = serde_json::from_str(&srv.mesh_sample_elevation(Parameters(
+            MeshSampleElevationParams {
+                mesh_path: "test.2dm".to_string(),
+                points: vec![[5.0, 5.0], [500.0, 500.0]],
+            },
+        )))
+        .unwrap();
+        assert_eq!(elev["ok"], true);
+        assert_eq!(elev["data"]["hit_count"], 1);
+        assert_eq!(elev["data"]["samples"][0]["z"], 10.0);
+        assert!(elev["data"]["samples"][1]["z"].is_null());
+
+        let sec: Value =
+            serde_json::from_str(&srv.mesh_section_line(Parameters(MeshSectionLineParams {
+                mesh_path: "test.2dm".to_string(),
+                start: [1.0, 5.0],
+                end: [9.0, 5.0],
+                samples: Some(5),
+            })))
+            .unwrap();
+        assert_eq!(sec["ok"], true);
+        // Stations at x=1,3,5,7 lie inside E4Q; x=9 is past edge (5,0.1)-(10,10)
+        assert_eq!(sec["data"]["stats"]["hit_count"], 4);
+        assert_eq!(sec["data"]["stats"]["min_z"], 10.0);
+        assert_eq!(sec["data"]["stats"]["max_z"], 10.0);
+        assert!(sec["data"]["stations"][4]["z"].is_null());
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -906,6 +906,198 @@ pub fn analyze_mesh(mesh: &Mesh) -> MeshAnalysis {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ElevationSample {
+    pub x: f64,
+    pub y: f64,
+    pub z: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub face_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SectionSample {
+    pub station: f64,
+    pub x: f64,
+    pub y: f64,
+    pub z: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub face_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SectionStats {
+    pub length: f64,
+    pub sample_count: usize,
+    pub hit_count: usize,
+    pub min_z: Option<f64>,
+    pub max_z: Option<f64>,
+    pub mean_z: Option<f64>,
+}
+
+fn barycentric_tri_z(p: [f64; 2], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<f64> {
+    let v0 = [b[0] - a[0], b[1] - a[1]];
+    let v1 = [c[0] - a[0], c[1] - a[1]];
+    let v2 = [p[0] - a[0], p[1] - a[1]];
+    let denom = v0[0] * v1[1] - v1[0] * v0[1];
+    if denom.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1.0 / denom;
+    let u = (v2[0] * v1[1] - v1[0] * v2[1]) * inv;
+    let v = (v0[0] * v2[1] - v2[0] * v0[1]) * inv;
+    let w = 1.0 - u - v;
+    const EPS: f64 = -1e-9;
+    if u >= EPS && v >= EPS && w >= EPS {
+        Some(w * a[2] + u * b[2] + v * c[2])
+    } else {
+        None
+    }
+}
+
+/// Deterministic barycentric 2D point-in-face elevation lookup across a mesh.
+/// When overlapping faces exist, picks the highest Z deterministically.
+pub fn sample_elevations(mesh: &Mesh, points: &[[f64; 2]]) -> Vec<ElevationSample> {
+    // Precompute per-face XY AABB for fast rejection
+    let face_aabbs: Vec<[f64; 4]> = mesh
+        .faces
+        .iter()
+        .map(|f| {
+            let mut min_x = f64::INFINITY;
+            let mut min_y = f64::INFINITY;
+            let mut max_x = f64::NEG_INFINITY;
+            let mut max_y = f64::NEG_INFINITY;
+            for &vi in &f.verts {
+                let v = mesh.vertices[vi];
+                min_x = min_x.min(v[0]);
+                min_y = min_y.min(v[1]);
+                max_x = max_x.max(v[0]);
+                max_y = max_y.max(v[1]);
+            }
+            [min_x, min_y, max_x, max_y]
+        })
+        .collect();
+
+    points
+        .iter()
+        .map(|&[px, py]| {
+            let mut best: Option<(f64, i64, String)> = None;
+            for (fi, face) in mesh.faces.iter().enumerate() {
+                let bb = face_aabbs[fi];
+                if px < bb[0] - 1e-9
+                    || px > bb[2] + 1e-9
+                    || py < bb[1] - 1e-9
+                    || py > bb[3] + 1e-9
+                {
+                    continue;
+                }
+                let hit_z = if face.verts.len() == 3 {
+                    barycentric_tri_z(
+                        [px, py],
+                        mesh.vertices[face.verts[0]],
+                        mesh.vertices[face.verts[1]],
+                        mesh.vertices[face.verts[2]],
+                    )
+                } else if face.verts.len() == 4 {
+                    barycentric_tri_z(
+                        [px, py],
+                        mesh.vertices[face.verts[0]],
+                        mesh.vertices[face.verts[1]],
+                        mesh.vertices[face.verts[2]],
+                    )
+                    .or_else(|| {
+                        barycentric_tri_z(
+                            [px, py],
+                            mesh.vertices[face.verts[0]],
+                            mesh.vertices[face.verts[2]],
+                            mesh.vertices[face.verts[3]],
+                        )
+                    })
+                } else {
+                    None
+                };
+                if let Some(z) = hit_z {
+                    let take = best.as_ref().is_none_or(|(bz, _, _)| z > *bz);
+                    if take {
+                        best = Some((z, face.id, face.part.clone()));
+                    }
+                }
+            }
+            match best {
+                Some((z, fid, part)) => ElevationSample {
+                    x: round3(px),
+                    y: round3(py),
+                    z: Some(round4(z)),
+                    face_id: Some(fid),
+                    part: Some(part),
+                },
+                None => ElevationSample {
+                    x: round3(px),
+                    y: round3(py),
+                    z: None,
+                    face_id: None,
+                    part: None,
+                },
+            }
+        })
+        .collect()
+}
+
+/// Sample a vertical cross-section elevation profile along a 2D line segment.
+pub fn sample_section_line(
+    mesh: &Mesh,
+    start: [f64; 2],
+    end: [f64; 2],
+    samples: usize,
+) -> (SectionStats, Vec<SectionSample>) {
+    let n = samples.clamp(2, 200);
+    let dx = end[0] - start[0];
+    let dy = end[1] - start[1];
+    let length = dx.hypot(dy);
+    let pts: Vec<[f64; 2]> = (0..n)
+        .map(|i| {
+            let t = i as f64 / (n - 1) as f64;
+            [start[0] + dx * t, start[1] + dy * t]
+        })
+        .collect();
+    let elevs = sample_elevations(mesh, &pts);
+
+    let mut min_z = f64::INFINITY;
+    let mut max_z = f64::NEG_INFINITY;
+    let mut sum_z = 0.0;
+    let mut hit_count = 0usize;
+    let mut out = Vec::with_capacity(n);
+
+    for (i, e) in elevs.into_iter().enumerate() {
+        let station = round3(length * (i as f64 / (n - 1) as f64));
+        if let Some(z) = e.z {
+            min_z = min_z.min(z);
+            max_z = max_z.max(z);
+            sum_z += z;
+            hit_count += 1;
+        }
+        out.push(SectionSample {
+            station,
+            x: e.x,
+            y: e.y,
+            z: e.z,
+            face_id: e.face_id,
+        });
+    }
+
+    let stats = SectionStats {
+        length: round3(length),
+        sample_count: n,
+        hit_count,
+        min_z: (hit_count > 0).then_some(round4(min_z)),
+        max_z: (hit_count > 0).then_some(round4(max_z)),
+        mean_z: (hit_count > 0).then_some(round4(sum_z / hit_count as f64)),
+    };
+    (stats, out)
+}
+
 /// Slice a mesh by 2D XY bbox `[min_x, min_y, max_x, max_y]`, compacting
 /// referenced vertices and writing a new `.2dm` or `.obj` file.
 pub fn write_bbox_slice(

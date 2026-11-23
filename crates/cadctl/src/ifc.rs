@@ -63,11 +63,12 @@ pub fn inspect(path: &Path, top: usize) -> Result<IfcSummary> {
             // FILE_NAME('name','timestamp',...); timestamp is the 2nd quoted field.
             timestamp = quoted_tokens(trimmed).nth(1);
         }
-        if trimmed.starts_with('#') && trimmed.contains('=') {
-            if let Some(class) = entity_class(trimmed) {
-                *counts.entry(class).or_insert(0) += 1;
-                total_entities += 1;
-            }
+        if trimmed.starts_with('#')
+            && trimmed.contains('=')
+            && let Some(class) = entity_class(trimmed)
+        {
+            *counts.entry(class).or_insert(0) += 1;
+            total_entities += 1;
         }
     }
 

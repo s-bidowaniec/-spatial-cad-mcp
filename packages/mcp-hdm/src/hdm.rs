@@ -119,6 +119,350 @@ pub fn summarize_hdm(path: &Path) -> Result<HdmSummary, ToolError> {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ProfilePoint {
+    pub station: f64,
+    pub x: f64,
+    pub y: f64,
+    pub value: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SwmmConduitProfile {
+    pub conduit: String,
+    pub from_node: String,
+    pub to_node: String,
+    pub length: f64,
+    pub from_invert: Option<f64>,
+    pub to_invert: Option<f64>,
+    pub slope: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProfilePayload {
+    SelafinLine {
+        variable: String,
+        unit: Option<String>,
+        time_step: usize,
+        time_seconds: f64,
+        length: f64,
+        hit_count: usize,
+        min: Option<f64>,
+        max: Option<f64>,
+        mean: Option<f64>,
+        points: Vec<ProfilePoint>,
+    },
+    SwmmConduits {
+        conduits: Vec<SwmmConduitProfile>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct CsvExportStats {
+    pub format: HdmFormat,
+    pub series_name: String,
+    pub rows_written: usize,
+    pub stats: SeriesStats,
+}
+
+/// Export a time series (Selafin node/XY variable or SWMM `[TIMESERIES]`) to a new CSV file.
+pub fn export_timeseries_csv(
+    path: &Path,
+    series_name: &str,
+    node_index: Option<usize>,
+    xy: Option<[f64; 2]>,
+    output_path: &Path,
+) -> Result<CsvExportStats, ToolError> {
+    let extracted = query_timeseries(path, series_name, node_index, xy)?;
+    let mut csv = String::from("step,time,value\n");
+    for p in &extracted.points {
+        csv.push_str(&format!("{},{},{}\n", p.step, p.time, p.value));
+    }
+    std::fs::write(output_path, csv).map_err(|e| {
+        ToolError::new("internal_error", format!("Failed writing CSV slice: {e}"))
+    })?;
+    Ok(CsvExportStats {
+        format: extracted.format,
+        series_name: extracted.series_name,
+        rows_written: extracted.points.len(),
+        stats: extracted.stats,
+    })
+}
+
+/// Extract a cross-section profile (TELEMAC Selafin along a 2D line at a time step,
+/// or EPA SWMM conduit longitudinal profile).
+pub fn query_profiles(
+    path: &Path,
+    variable: Option<&str>,
+    time_step: Option<usize>,
+    start: Option<[f64; 2]>,
+    end: Option<[f64; 2]>,
+    samples: usize,
+) -> Result<ProfilePayload, ToolError> {
+    match detect_hdm_format(path)? {
+        HdmFormat::TelemacSelafin => {
+            let var = variable.ok_or_else(|| {
+                ToolError::new(
+                    "invalid_input",
+                    "variable is required when querying profiles from a TELEMAC Selafin (.slf/.res) file.",
+                )
+            })?;
+            let (Some(p0), Some(p1)) = (start, end) else {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "start ([x0, y0]) and end ([x1, y1]) are required for Selafin line profiles.",
+                ));
+            };
+            query_selafin_profile(path, var, time_step, p0, p1, samples)
+        }
+        HdmFormat::SwmmInp => query_swmm_conduit_profile(path),
+        HdmFormat::Sms2dm => Err(ToolError::new(
+            "invalid_input",
+            "For SMS .2dm elevation profiles, use `mesh_section_line` in mcp-mesh.",
+        )),
+    }
+}
+
+fn bary_interp_val(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2], va: f64, vb: f64, vc: f64) -> Option<f64> {
+    let v0 = [b[0] - a[0], b[1] - a[1]];
+    let v1 = [c[0] - a[0], c[1] - a[1]];
+    let v2 = [p[0] - a[0], p[1] - a[1]];
+    let denom = v0[0] * v1[1] - v1[0] * v0[1];
+    if denom.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1.0 / denom;
+    let u = (v2[0] * v1[1] - v1[0] * v2[1]) * inv;
+    let v = (v0[0] * v2[1] - v2[0] * v0[1]) * inv;
+    let w = 1.0 - u - v;
+    const EPS: f64 = -1e-9;
+    if u >= EPS && v >= EPS && w >= EPS {
+        Some(w * va + u * vb + v * vc)
+    } else {
+        None
+    }
+}
+
+fn query_selafin_profile(
+    path: &Path,
+    var_name: &str,
+    requested_step: Option<usize>,
+    start: [f64; 2],
+    end: [f64; 2],
+    samples: usize,
+) -> Result<ProfilePayload, ToolError> {
+    let raw = std::fs::read(path)
+        .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read Selafin file: {e}")))?;
+    let hdr = parse_selafin_header(&raw)?;
+    if hdr.ndp != 3 {
+        return Err(ToolError::new(
+            "unsupported_format",
+            format!("Selafin profile interpolation currently supports triangular meshes (ndp=3), got ndp={}.", hdr.ndp),
+        ));
+    }
+
+    let want = var_name.trim().to_ascii_lowercase();
+    let var_idx = hdr
+        .variables
+        .iter()
+        .position(|v| v.name.to_ascii_lowercase() == want)
+        .or_else(|| {
+            hdr.variables
+                .iter()
+                .position(|v| v.name.to_ascii_lowercase().contains(&want))
+        })
+        .ok_or_else(|| {
+            ToolError::new(
+                "invalid_input",
+                format!("Variable '{var_name}' not found in Selafin file."),
+            )
+        })?;
+
+    // Collect time steps for the requested variable
+    let mut r = FortranReader {
+        data: &raw,
+        pos: hdr.body_offset,
+    };
+    let mut steps: Vec<(f64, Vec<f64>)> = Vec::new();
+    while r.has_more() {
+        let Ok(trec) = r.next_record() else {
+            break;
+        };
+        let Ok(tvals) = read_be_floats(trec, hdr.is_double) else {
+            break;
+        };
+        let Some(&t) = tvals.first() else {
+            break;
+        };
+        let mut chosen: Option<Vec<f64>> = None;
+        let mut ok = true;
+        for vi in 0..hdr.variables.len() {
+            let Ok(vrec) = r.next_record() else {
+                ok = false;
+                break;
+            };
+            if vi == var_idx {
+                chosen = read_be_floats(vrec, hdr.is_double).ok();
+            }
+        }
+        if !ok {
+            break;
+        }
+        if let Some(vals) = chosen {
+            steps.push((t, vals));
+        }
+    }
+    if steps.is_empty() {
+        return Err(ToolError::new(
+            "cannot_open_hdm",
+            "Selafin file contains no time steps.",
+        ));
+    }
+    let step_idx = match requested_step {
+        Some(s) if s < steps.len() => s,
+        Some(s) => {
+            return Err(ToolError::new(
+                "invalid_input",
+                format!("time_step {s} out of bounds (available steps: 0..{}).", steps.len()),
+            ));
+        }
+        None => steps.len() - 1,
+    };
+    let (time_seconds, ref values) = steps[step_idx];
+
+    let n = samples.clamp(2, 200);
+    let dx = end[0] - start[0];
+    let dy = end[1] - start[1];
+    let length = dx.hypot(dy);
+
+    let mut points = Vec::with_capacity(n);
+    let mut min_v = f64::INFINITY;
+    let mut max_v = f64::NEG_INFINITY;
+    let mut sum_v = 0.0;
+    let mut hit_count = 0usize;
+
+    for i in 0..n {
+        let t = i as f64 / (n - 1) as f64;
+        let px = start[0] + dx * t;
+        let py = start[1] + dy * t;
+        let mut found = None;
+
+        for e in 0..hdr.nelem {
+            let i0 = (hdr.ikle[3 * e] - 1) as usize;
+            let i1 = (hdr.ikle[3 * e + 1] - 1) as usize;
+            let i2 = (hdr.ikle[3 * e + 2] - 1) as usize;
+            if i0 >= hdr.npoin || i1 >= hdr.npoin || i2 >= hdr.npoin {
+                continue;
+            }
+            if let Some(v) = bary_interp_val(
+                [px, py],
+                [hdr.xs[i0], hdr.ys[i0]],
+                [hdr.xs[i1], hdr.ys[i1]],
+                [hdr.xs[i2], hdr.ys[i2]],
+                values[i0],
+                values[i1],
+                values[i2],
+            ) {
+                found = Some(round4(v));
+                break;
+            }
+        }
+
+        if let Some(v) = found {
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+            sum_v += v;
+            hit_count += 1;
+        }
+        points.push(ProfilePoint {
+            station: round3(length * t),
+            x: round3(px),
+            y: round3(py),
+            value: found,
+        });
+    }
+
+    Ok(ProfilePayload::SelafinLine {
+        variable: hdr.variables[var_idx].name.clone(),
+        unit: (!hdr.variables[var_idx].unit.is_empty()).then(|| hdr.variables[var_idx].unit.clone()),
+        time_step: step_idx,
+        time_seconds: round3(time_seconds),
+        length: round3(length),
+        hit_count,
+        min: (hit_count > 0).then_some(round4(min_v)),
+        max: (hit_count > 0).then_some(round4(max_v)),
+        mean: (hit_count > 0).then_some(round4(sum_v / hit_count as f64)),
+        points,
+    })
+}
+
+fn query_swmm_conduit_profile(path: &Path) -> Result<ProfilePayload, ToolError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read SWMM .inp: {e}")))?;
+
+    let mut section = String::new();
+    let mut node_inverts: BTreeMap<String, f64> = BTreeMap::new();
+    let mut conduits_raw: Vec<(String, String, String, f64)> = Vec::new();
+
+    for raw in text.lines() {
+        let line = raw.split(';').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line[1..line.len() - 1].trim().to_ascii_uppercase();
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        match section.as_str() {
+            "JUNCTIONS" | "OUTFALLS" | "STORAGE" => {
+                if parts.len() >= 2
+                    && let Ok(inv) = parts[1].parse::<f64>()
+                {
+                    node_inverts.insert(parts[0].to_string(), inv);
+                }
+            }
+            "CONDUITS" => {
+                if parts.len() >= 4
+                    && let Ok(len) = parts[3].parse::<f64>()
+                {
+                    conduits_raw.push((
+                        parts[0].to_string(),
+                        parts[1].to_string(),
+                        parts[2].to_string(),
+                        len,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut conduits: Vec<SwmmConduitProfile> = conduits_raw
+        .into_iter()
+        .map(|(conduit, from_node, to_node, length)| {
+            let from_inv = node_inverts.get(&from_node).copied();
+            let to_inv = node_inverts.get(&to_node).copied();
+            let slope = match (from_inv, to_inv) {
+                (Some(z0), Some(z1)) if length > 1e-9 => Some(round4((z0 - z1) / length)),
+                _ => None,
+            };
+            SwmmConduitProfile {
+                conduit,
+                from_node,
+                to_node,
+                length: round3(length),
+                from_invert: from_inv.map(round3),
+                to_invert: to_inv.map(round3),
+                slope,
+            }
+        })
+        .collect();
+    conduits.sort_by(|a, b| a.conduit.cmp(&b.conduit));
+    Ok(ProfilePayload::SwmmConduits { conduits })
+}
+
 pub fn query_timeseries(
     path: &Path,
     name: &str,
@@ -276,6 +620,7 @@ struct SelafinHeader {
     npoin: usize,
     ndp: usize,
     start_date: Option<String>,
+    ikle: Vec<i32>,
     xs: Vec<f64>,
     ys: Vec<f64>,
     body_offset: usize,
@@ -341,7 +686,7 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
     let npoin = dims[1].max(0) as usize;
     let ndp = dims[2].max(0) as usize;
 
-    let _ikle = r.next_record()?;
+    let ikle = read_be_i32_vec(r.next_record()?)?;
     let _ipobo = r.next_record()?;
     let x_rec = r.next_record()?;
     let y_rec = r.next_record()?;
@@ -360,6 +705,7 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
         npoin,
         ndp,
         start_date,
+        ikle,
         xs,
         ys,
         body_offset: r.pos,
@@ -924,6 +1270,43 @@ mod tests {
         assert_eq!(ts.points.len(), 2);
         assert_eq!(ts.stats.min, Some(1.0));
         assert_eq!(ts.stats.max, Some(1.4));
+
+        // Barycentric line profile across triangle (0,0)-(10,0)-(5,10) at step 1
+        // Values at step 1: [0.8, 1.4, 2.0]. Midpoint (5, 0) = 1.1; centroid (5, 3.333) = 1.4
+        let prof = query_profiles(
+            &p,
+            Some("WATER DEPTH"),
+            Some(1),
+            Some([5.0, 0.0]),
+            Some([5.0, 5.0]),
+            3,
+        )
+        .unwrap();
+        match prof {
+            ProfilePayload::SelafinLine {
+                time_step,
+                time_seconds,
+                hit_count,
+                points,
+                ..
+            } => {
+                assert_eq!(time_step, 1);
+                assert_eq!(time_seconds, 60.0);
+                assert_eq!(hit_count, 3);
+                assert_eq!(points[0].value, Some(1.1));
+                assert_eq!(points[2].value, Some(1.55));
+            }
+            _ => panic!("expected SelafinLine profile"),
+        }
+
+        let csv_path = dir.join("depth.csv");
+        let csv_stats =
+            export_timeseries_csv(&p, "WATER DEPTH", Some(1), None, &csv_path).unwrap();
+        assert_eq!(csv_stats.rows_written, 2);
+        let csv_text = std::fs::read_to_string(&csv_path).unwrap();
+        assert!(csv_text.starts_with("step,time,value\n"));
+        assert!(csv_text.contains("0,0,1\n"));
+        assert!(csv_text.contains("1,60,1.4\n"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

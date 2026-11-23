@@ -7,7 +7,9 @@
 //!   type, elevation presence, and 2D bounding box.
 //! - `dxf_extract_text` — paginated cleaned `TEXT`/`MTEXT`/`ATTRIB` annotations.
 
-use crate::parser::{EntityRecord, TextRecord, parse_dxf_file};
+use crate::parser::{
+    BBox3D, EntityRecord, LayerDetail, TextRecord, export_dxf_slice, parse_dxf_file,
+};
 use cad_envelope::{
     MAX_VALUE_CHARS, ToolError, paginate, resolve_input_file, run_envelope, truncate_value,
 };
@@ -78,6 +80,51 @@ pub struct DxfExtractTextParams {
     /// Zero-based pagination offset (default 0).
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfQueryLayersParams {
+    /// Path to the ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dxf_path: String,
+    /// Page size (default 50, hard cap 200).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Zero-based pagination offset (default 0).
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct DxfExportSliceParams {
+    /// Path to the source ASCII DXF file, relative to MCP_CAD_WORKSPACE_ROOT.
+    pub dxf_path: String,
+    /// 2D bounding box [min_x, min_y, max_x, max_y] selecting intersecting entities.
+    pub bbox: [f64; 4],
+    /// Plain output file name (e.g. "clip.dxf") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+    /// Optional exact layer name filter (case-insensitive).
+    #[serde(default)]
+    pub layer: Option<String>,
+    /// Optional DXF entity type filter (e.g. "LINE", "LWPOLYLINE", "3DFACE").
+    #[serde(default)]
+    pub entity_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct QueryLayersData {
+    dxf_path: String,
+    layers: Vec<LayerDetail>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExportSliceData {
+    dxf_path: String,
+    output_path: String,
+    bbox: [f64; 4],
+    before_entities: usize,
+    after_entities: usize,
+    kept_layers: usize,
+    extents: Option<BBox3D>,
 }
 
 #[derive(Debug, Serialize)]
@@ -304,6 +351,74 @@ impl DxfServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Read-only paginated breakdown of DXF layers with per-layer entity counts, type histogram, Z=0 count, and 3D bounding box. Hard page cap: 200."
+    )]
+    pub fn dxf_query_layers(
+        &self,
+        Parameters(params): Parameters<DxfQueryLayersParams>,
+    ) -> String {
+        run_envelope("dxf_query_layers", || {
+            let resolved = resolve_input_file(&self.sandbox, &params.dxf_path)?;
+            let doc = parse_dxf_file(&resolved)?;
+            let details = doc.layer_details();
+            let page = paginate(&details, params.limit, params.offset)?;
+            let mut meta = Map::new();
+            meta.insert("pagination".to_string(), page.meta_value());
+            Ok((
+                QueryLayersData {
+                    dxf_path: params.dxf_path,
+                    layers: page.items,
+                },
+                Some(meta),
+            ))
+        })
+    }
+
+    #[tool(
+        description = "Mutating tool: extract entities intersecting a 2D bbox [min_x, min_y, max_x, max_y] (with optional layer/entity_type filters) into a NEW ASCII DXF under `<workspace>/outputs/<output_name>`. Preserves original entity geometry verbatim, never modifies inputs, and refuses to overwrite existing outputs."
+    )]
+    pub fn dxf_export_slice(
+        &self,
+        Parameters(params): Parameters<DxfExportSliceParams>,
+    ) -> String {
+        run_envelope("dxf_export_slice", || {
+            if !params.bbox.iter().all(|v| v.is_finite())
+                || params.bbox[0] > params.bbox[2]
+                || params.bbox[1] > params.bbox[3]
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "bbox must be finite [min_x, min_y, max_x, max_y] with min <= max.",
+                ));
+            }
+            let resolved_in = resolve_input_file(&self.sandbox, &params.dxf_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let stats = export_dxf_slice(
+                &resolved_in,
+                params.bbox,
+                params.layer.as_deref(),
+                params.entity_type.as_deref(),
+                &resolved_out,
+            )?;
+            Ok((
+                ExportSliceData {
+                    dxf_path: params.dxf_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    bbox: params.bbox,
+                    before_entities: stats.before_entities,
+                    after_entities: stats.after_entities,
+                    kept_layers: stats.kept_layers,
+                    extents: stats.extents,
+                },
+                None,
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -366,6 +481,39 @@ mod tests {
             .unwrap();
         assert_eq!(txt["ok"], true);
         assert_eq!(txt["data"]["texts"][0]["text"], "Station 0+100 ±0.01");
+
+        let layers: Value =
+            serde_json::from_str(&srv.dxf_query_layers(Parameters(DxfQueryLayersParams {
+                dxf_path: "sample.dxf".to_string(),
+                limit: Some(10),
+                offset: Some(0),
+            })))
+            .unwrap();
+        assert_eq!(layers["ok"], true);
+        assert_eq!(layers["data"]["layers"].as_array().unwrap().len(), 2);
+
+        let sliced: Value =
+            serde_json::from_str(&srv.dxf_export_slice(Parameters(DxfExportSliceParams {
+                dxf_path: "sample.dxf".to_string(),
+                bbox: [0.0, 0.0, 50.0, 22.0],
+                output_name: "road_only.dxf".to_string(),
+                layer: Some("ROAD".to_string()),
+                entity_type: None,
+            })))
+            .unwrap();
+        assert_eq!(sliced["ok"], true);
+        assert_eq!(sliced["data"]["before_entities"], 2);
+        assert_eq!(sliced["data"]["after_entities"], 1);
+        assert!(dir.join("outputs/road_only.dxf").is_file());
+
+        // Verify exported DXF parses cleanly back through dxf_summary
+        let resumm: Value =
+            serde_json::from_str(&srv.dxf_summary(Parameters(DxfSummaryParams {
+                dxf_path: "outputs/road_only.dxf".to_string(),
+            })))
+            .unwrap();
+        assert_eq!(resumm["ok"], true);
+        assert_eq!(resumm["data"]["total_entities"], 1);
 
         let _ = fs::remove_dir_all(&dir);
     }

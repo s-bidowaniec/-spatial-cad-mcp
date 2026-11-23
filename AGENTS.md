@@ -53,7 +53,8 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
    before details.
 2. Never pull raw geometry or full entity trees into your context. Use the paginated query
    tools; fetch more pages only when the task needs them.
-3. Read-only tools are separate from mutating tools. Mutators (roadmap) always write a **new**
+3. Read-only tools are separate from mutating tools. Mutators (`dxf_export_slice`,
+   `gis_export_bbox`, `hdm_export_slice`, `mesh_slice_bbox`) always write a **new**
    file under `<workspace>/outputs` and return a structured diff - inputs are never modified.
 4. All file arguments are relative to `MCP_CAD_WORKSPACE_ROOT`. `..` traversal,
    outside-absolute paths and symlink escapes are rejected; do not try to work around the
@@ -71,10 +72,10 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
 | Group | Package | Language | Tools (bold = implemented) |
 | --- | --- | --- | --- |
 | BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_elements**, **ifc_get_psets**, **ifc_validate_required_props** |
-| CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_entities**, **dxf_extract_text** |
+| CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_layers**, **dxf_query_entities**, **dxf_extract_text**, **dxf_export_slice** |
 | GIS | `packages/mcp-gis` | Rust (rusqlite + rmcp) | **gis_summary**, **gis_extract_schema**, **gis_query_features**, **gis_export_bbox** |
-| HDM | `packages/mcp-hdm` | Rust (pure Rust + rmcp) | **hdm_summary**, **hdm_query_timeseries** |
-| mesh | `packages/mcp-mesh` | Rust (pure Rust + rmcp) | **mesh_summary**, **mesh_query_parts**, **mesh_query_quality**, **mesh_slice_bbox** |
+| HDM | `packages/mcp-hdm` | Rust (pure Rust + rmcp) | **hdm_summary**, **hdm_query_timeseries**, **hdm_query_profiles**, **hdm_export_slice** |
+| mesh | `packages/mcp-mesh` | Rust (pure Rust + rmcp) | **mesh_summary**, **mesh_query_parts**, **mesh_query_quality**, **mesh_sample_elevation**, **mesh_section_line**, **mesh_slice_bbox** |
 | CLI | `crates/cadctl` | Rust | inspect: IFC header + entity counts (no CAD libs) |
 
 Roadmaps for the scaffold groups: [docs/architecture.md](docs/architecture.md).

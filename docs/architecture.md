@@ -2,9 +2,9 @@
 
 ## Status
 
-**Pre-alpha, concept stage.** This document describes the intended architecture of a working
-skeleton. Only `mcp-ifc` implements tools; Rust servers are scaffolds. Everything here may
-change before the first tagged release.
+**Pre-alpha, MVP across all five tool groups.** `mcp-ifc` (Python) and all four Rust MCP servers
+(`mcp-dxf`, `mcp-gis`, `mcp-hdm`, `mcp-mesh`) implement sandboxed, envelope-shaped read-only and
+output-isolated mutating tools. Everything here may still evolve before the first tagged release.
 
 ## Goals
 
@@ -24,10 +24,10 @@ being **another LLM agent** rather than a human at a GUI. Consequences:
 | --- | --- | --- |
 | IFC inspection/validation (mvp) | Python + ifcopenshell | ifcopenshell is the reference IFC library; no comparable Rust ecosystem exists yet |
 | Shared core (sandbox/envelopes/pagination/logging) | Python | ships with all Python servers |
-| DXF server (mvp) | Rust + rmcp | pure-Rust streaming ASCII DXF parser with LibreDWG crease repair, Z=0 audit, entity & text queries |
+| DXF server (mvp) | Rust + rmcp | pure-Rust streaming ASCII DXF parser with LibreDWG crease repair, Z=0 audit, layer/entity/text queries, and lossless slice export |
 | GIS server (mvp) | Rust + rmcp | GeoPackage via `rusqlite` + WKB decoder, GeoJSON natively, CRS sanity checks, bbox GeoJSON export |
-| Hydrodynamic server (mvp) | Rust + rmcp | pure-Rust TELEMAC Selafin (`.slf`/`.res`), EPA SWMM (`.inp`), and SMS `.2dm`; HEC-RAS HDF / Delft3D netCDF on roadmap |
-| Mesh server (mvp) | Rust + rmcp | pure-Rust `.2dm`/`.obj`/`.stl` loader with edge-incidence topology, watertightness, element QA, and bbox slice export |
+| Hydrodynamic server (mvp) | Rust + rmcp | pure-Rust TELEMAC Selafin (`.slf`/`.res`), EPA SWMM (`.inp`), and SMS `.2dm` with time series, profiles, and CSV export; HEC-RAS HDF / Delft3D netCDF on roadmap |
+| Mesh server (mvp) | Rust + rmcp | pure-Rust `.2dm`/`.obj`/`.stl` loader with edge-incidence topology, watertightness, element QA, elevation/section sampling, and bbox slice export |
 | Envelopes & Sandbox (Rust) | Rust (`cad-envelope`, `cad-sandbox`) | identical envelope/pagination/sandbox rules to `mcp_cad_core`, shared by all Rust binaries |
 | CLI (`cadctl`) | Rust | streaming IFC header/counts inspection with zero CAD dependencies |
 
@@ -62,10 +62,9 @@ the `safe_tool` decorator converts them into envelopes and logs details to stder
 
 - mcp-ifc: geometry-level summaries (bounding boxes via `ifcopenshell.geom`), spatial-hierarchy
   browser, first mutating tool (`ifc_export_submodel`, writing to `outputs/`).
-- mcp-dxf: `dxf_summary`, `dxf_query_entities`, `dxf_extract_text` (Rust `dxf` crate).
-- mcp-gis: `gis_summary`, `gis_query_features`, `gis_extract_schema` (GeoPackage via `rusqlite`,
-  GeoJSON natively).
-- mcp-hdm: `hdm_summary`, `hdm_query_timeseries`, `hdm_query_profiles` (HEC-RAS HDF, SWMM,
-  TELEMAC Selafin, Delft3D netCDF).
-- mcp-mesh: `mesh_summary` (OBJ/STL/glTF), `mesh_query_parts`, `mesh_slice_bbox`.
+- mcp-dxf: 2D-to-3D polyline draping onto mesh surfaces (`dxf_drape_mesh`), block/INSERT expansion.
+- mcp-gis: Shapefile / FlatGeobuf / GeoTIFF raster summary & clip support.
+- mcp-hdm: HEC-RAS HDF and Delft3D netCDF readers.
+- mcp-mesh: glTF/GLB support, spatial-index acceleration for multi-million-face meshes, constrained Delaunay triangulation.
+- `cadctl`: multi-format quick inspect across DXF, mesh, GIS, and HDM files.
 - Shared JSON Schema for the envelope in both ecosystems for client-side validation.

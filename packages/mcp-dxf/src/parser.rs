@@ -345,7 +345,76 @@ pub struct DxfDocument {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct LayerDetail {
+    pub layer: String,
+    pub entity_count: usize,
+    pub entities_without_z: usize,
+    pub entity_types: BTreeMap<String, usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bbox: Option<BBox3D>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DxfSliceStats {
+    pub before_entities: usize,
+    pub after_entities: usize,
+    pub kept_layers: usize,
+    pub extents: Option<BBox3D>,
+}
+
 impl DxfDocument {
+    pub fn layer_details(&self) -> Vec<LayerDetail> {
+        struct Acc {
+            count: usize,
+            no_z: usize,
+            types: BTreeMap<String, usize>,
+            bbox: BBoxAcc,
+        }
+        let mut map: BTreeMap<String, Acc> = BTreeMap::new();
+        for l in &self.declared_layers {
+            map.entry(l.clone()).or_insert_with(|| Acc {
+                count: 0,
+                no_z: 0,
+                types: BTreeMap::new(),
+                bbox: BBoxAcc::default(),
+            });
+        }
+        for e in &self.entities {
+            let acc = map.entry(e.layer.clone()).or_insert_with(|| Acc {
+                count: 0,
+                no_z: 0,
+                types: BTreeMap::new(),
+                bbox: BBoxAcc::default(),
+            });
+            acc.count += 1;
+            if !e.has_z {
+                acc.no_z += 1;
+            }
+            *acc.types.entry(e.entity_type.clone()).or_insert(0) += 1;
+            if let Some(b) = e.bbox {
+                acc.bbox.push(b.min[0], b.min[1], b.min[2]);
+                acc.bbox.push(b.max[0], b.max[1], b.max[2]);
+            }
+        }
+        let mut out: Vec<LayerDetail> = map
+            .into_iter()
+            .map(|(layer, acc)| LayerDetail {
+                layer,
+                entity_count: acc.count,
+                entities_without_z: acc.no_z,
+                entity_types: acc.types,
+                bbox: acc.bbox.finish(),
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.entity_count
+                .cmp(&a.entity_count)
+                .then_with(|| a.layer.cmp(&b.layer))
+        });
+        out
+    }
+
     pub fn entity_type_counts(&self) -> Vec<(String, usize)> {
         let mut counts: BTreeMap<String, usize> = BTreeMap::new();
         for e in &self.entities {
@@ -368,6 +437,161 @@ impl DxfDocument {
         out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         out
     }
+}
+
+/// Losslessly slice an ASCII DXF to entities intersecting `bbox` (plus optional
+/// `layer` / `entity_type` filters), preserving original DXF entity group-code
+/// records and writing a clean valid ASCII DXF (R2010 header + layer table +
+/// recomputed `$EXTMIN`/`$EXTMAX`) to `output_path`.
+pub fn export_dxf_slice(
+    input_path: &Path,
+    bbox: [f64; 4],
+    layer_filter: Option<&str>,
+    entity_type_filter: Option<&str>,
+    output_path: &Path,
+) -> Result<DxfSliceStats, ToolError> {
+    let raw = std::fs::read(input_path).map_err(|e| {
+        ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}"))
+    })?;
+    if raw.starts_with(b"AutoCAD Binary DXF") {
+        return Err(ToolError::new(
+            "unsupported_format",
+            "Binary DXF is not supported yet. Convert the drawing to ASCII DXF and retry.",
+        ));
+    }
+
+    let (repaired_bytes, _) = repair_mesh_counts(&raw);
+    let content = String::from_utf8_lossy(&repaired_bytes);
+    let pairs = collect_pairs(&content)?;
+
+    let mut acad_ver = "AC1024".to_string();
+    let mut insunits = 6i32;
+    let layer_lc = layer_filter.map(str::to_ascii_lowercase);
+    let type_uc = entity_type_filter.map(str::to_ascii_uppercase);
+
+    let mut before_entities = 0usize;
+    let mut after_entities = 0usize;
+    let mut kept_layers: BTreeSet<String> = BTreeSet::new();
+    let mut kept_extents = BBoxAcc::default();
+    let mut kept_blocks: Vec<Vec<(i32, &str)>> = Vec::new();
+
+    let mut i = 0usize;
+    let mut section = String::new();
+    while i < pairs.len() {
+        let (code, val) = pairs[i];
+        if code == 0 && val == "SECTION" && i + 1 < pairs.len() && pairs[i + 1].0 == 2 {
+            section = pairs[i + 1].1.to_string();
+            i += 2;
+            continue;
+        }
+        if code == 0 && val == "ENDSEC" {
+            section.clear();
+            i += 1;
+            continue;
+        }
+        if section == "HEADER" && code == 9 {
+            let var = val;
+            i += 1;
+            while i < pairs.len() && pairs[i].0 != 9 && pairs[i].0 != 0 {
+                if var == "$ACADVER" && pairs[i].0 == 1 {
+                    acad_ver = pairs[i].1.to_string();
+                } else if var == "$INSUNITS"
+                    && pairs[i].0 == 70
+                    && let Ok(u) = pairs[i].1.parse::<i32>()
+                {
+                    insunits = u;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if section == "ENTITIES" && code == 0 && val != "ENDSEC" && val != "EOF" {
+            let entity_type = val;
+            let block_start = i;
+            let start = i + 1;
+            let mut end = start;
+            while end < pairs.len() && pairs[end].0 != 0 {
+                end += 1;
+            }
+            let (rec, block_end) = if entity_type == "POLYLINE" {
+                let (rec, _, next_i) = parse_polyline(&pairs[start..end], &pairs, end);
+                (rec, next_i)
+            } else if entity_type == "SEQEND" || entity_type == "VERTEX" {
+                i = end;
+                continue;
+            } else {
+                let (rec, _, _) = parse_single_entity(entity_type, &pairs[start..end]);
+                (rec, end)
+            };
+
+            before_entities += 1;
+            let layer_ok = layer_lc
+                .as_deref()
+                .is_none_or(|w| rec.layer.to_ascii_lowercase() == w);
+            let type_ok = type_uc.as_deref().is_none_or(|w| rec.entity_type == w);
+            let bbox_ok = rec.bbox.is_some_and(|eb| {
+                eb.max[0] >= bbox[0]
+                    && eb.min[0] <= bbox[2]
+                    && eb.max[1] >= bbox[1]
+                    && eb.min[1] <= bbox[3]
+            });
+
+            if layer_ok && type_ok && bbox_ok {
+                after_entities += 1;
+                kept_layers.insert(rec.layer.clone());
+                if let Some(eb) = rec.bbox {
+                    kept_extents.push(eb.min[0], eb.min[1], eb.min[2]);
+                    kept_extents.push(eb.max[0], eb.max[1], eb.max[2]);
+                }
+                kept_blocks.push(pairs[block_start..block_end].to_vec());
+            }
+            i = block_end;
+            continue;
+        }
+        i += 1;
+    }
+
+    let extents = kept_extents.finish();
+    let mut out = String::new();
+    out.push_str("0\nSECTION\n2\nHEADER\n");
+    out.push_str(&format!("9\n$ACADVER\n1\n{acad_ver}\n"));
+    out.push_str(&format!("9\n$INSUNITS\n70\n{insunits}\n"));
+    if let Some(ext) = extents {
+        out.push_str(&format!(
+            "9\n$EXTMIN\n10\n{}\n20\n{}\n30\n{}\n",
+            ext.min[0], ext.min[1], ext.min[2]
+        ));
+        out.push_str(&format!(
+            "9\n$EXTMAX\n10\n{}\n20\n{}\n30\n{}\n",
+            ext.max[0], ext.max[1], ext.max[2]
+        ));
+    }
+    out.push_str("0\nENDSEC\n");
+
+    out.push_str("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n");
+    for layer in &kept_layers {
+        out.push_str(&format!("0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+    }
+    out.push_str("0\nENDTAB\n0\nENDSEC\n");
+
+    out.push_str("0\nSECTION\n2\nENTITIES\n");
+    for block in &kept_blocks {
+        for (c, v) in block {
+            out.push_str(&format!("{c}\n{v}\n"));
+        }
+    }
+    out.push_str("0\nENDSEC\n0\nEOF\n");
+
+    std::fs::write(output_path, out).map_err(|e| {
+        ToolError::new("internal_error", format!("Failed writing sliced DXF: {e}"))
+    })?;
+
+    Ok(DxfSliceStats {
+        before_entities,
+        after_entities,
+        kept_layers: kept_layers.len(),
+        extents,
+    })
 }
 
 pub fn parse_dxf_file(path: &Path) -> Result<DxfDocument, ToolError> {
