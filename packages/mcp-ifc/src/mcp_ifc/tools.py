@@ -29,6 +29,7 @@ from mcp_ifc.model_cache import load_ifc
 _logger = get_logger(__name__)
 
 
+# spatial-cad-review[SC-09]: Bind edits to a source revision and compare the candidate IFC.
 def _resolve_input(ifc_path: str) -> ifcopenshell.file:
     """Sandbox-resolve ``ifc_path`` and return the parsed model."""
     path = workspace_sandbox().resolve(ifc_path, must_exist=True, expect=("file",))
@@ -43,6 +44,7 @@ def _paged(items: list[Any], limit: int, offset: int) -> Page:
         raise ToolError("invalid_input", str(exc)) from exc
 
 
+# spatial-cad-review[SC-08]: Link IFC identity, world placement and dependencies to the view.
 def _compact_element(element: ifcopenshell.entity_instance) -> dict[str, Any]:
     """One-line JSON description of an element (no geometry)."""
     predefined_type = getattr(element, "PredefinedType", None)

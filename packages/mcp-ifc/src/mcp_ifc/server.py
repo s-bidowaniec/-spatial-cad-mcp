@@ -27,6 +27,7 @@ from mcp_ifc import tools as t
 
 _logger = get_logger("mcp-ifc")
 
+# spatial-cad-review[SC-10]: Expose stable IFC revision references for field observations.
 mcp = FastMCP(
     name="mcp-ifc",
     instructions=(

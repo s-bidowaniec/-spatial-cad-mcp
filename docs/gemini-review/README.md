@@ -13,8 +13,14 @@ wyłącznie kod, dokumentację i syntetyczne dane testowe.
 | [SC-05](tasks/SC-05.md) | Poprawny strumieniowy odczyt Selafin i kontrakt HDM | SC-01 |
 | [SC-06](tasks/SC-06.md) | IFC, spójny cache i budżet odpowiedzi | — |
 | [SC-07](tasks/SC-07.md) | Odbiór MCP, konfiguracja klienta i regresje między formatami | SC-01–SC-06 |
+| [SC-08](tasks/SC-08.md) | Identyfikacja obiektów IFC i natywny podgląd BIM | — |
+| [SC-09](tasks/SC-09.md) | Podgląd i kontrolowany zapis zmiany IFC | SC-01, SC-08 |
+| [SC-10](tasks/SC-10.md) | Zdjęcia i głos z budowy, model działki i instalacji | SC-08, SC-09 |
 
-SC-01 i SC-06 można zacząć równolegle. Każda paczka zawiera `GEMINI.md`,
+[Analiza IFC i Blendera](IFC-BLENDER.md) zawiera wynik próby przesunięcia
+komina i przepływ od zgłoszenia z budowy do modelu oraz rzutu.
+
+SC-01, SC-06 i SC-08 można zacząć równolegle. Każda paczka zawiera `GEMINI.md`,
 `TASK.md`, review i źródła z jednego wskazanego commitu z zachowanym drzewem
 ścieżek. Paczki zależne należy przegenerować po integracji wymaganych zmian.
 
