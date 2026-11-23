@@ -1,7 +1,8 @@
 """FastMCP server entry point for mcp-ifc (stdio transport).
 
-Starts a read-only IFC inspection/query/validation server. Paths given
-to tools are always resolved inside ``MCP_CAD_WORKSPACE_ROOT``.
+Starts an IFC inspection/query/validation server plus one mutating tool
+(``ifc_set_property``). Paths given to tools are always resolved inside
+``MCP_CAD_WORKSPACE_ROOT``.
 
 Usage::
 
@@ -10,7 +11,7 @@ Usage::
 The MCP-exposed tool functions below deliberately mirror the names in
 ``mcp_ifc.tools`` (separate module namespace) so that the wire tool names
 stay agent-friendly: `ifc_summary`, `ifc_query_elements`, `ifc_get_psets`,
-`ifc_validate_required_props`.
+`ifc_validate_required_props`, `ifc_set_property`.
 """
 
 from __future__ import annotations
@@ -30,14 +31,15 @@ _logger = get_logger("mcp-ifc")
 mcp = FastMCP(
     name="mcp-ifc",
     instructions=(
-        "Read-only IFC/BIM inspection tools. Start with ifc_summary to orient yourself, "
+        "IFC/BIM inspection, query and validation tools, plus the mutating "
+        "ifc_set_property. Start with ifc_summary to orient yourself, "
         "then ifc_query_elements to list elements, then ifc_get_psets or "
         "ifc_validate_required_props for details. All tools return JSON envelopes: "
         '{"ok": true, "data": ..., "meta": ...} on success, '
         '{"ok": false, "error": {"code": ..., "message": ...}} on failure. '
         "Paths are relative to the workspace root and sandboxed; traversal is rejected. "
-        "Mutating tools (when added) always write new files under outputs/ and return "
-        "diffs; this server never modifies input files."
+        "The mutating tool always writes a new file under outputs/ and returns "
+        "a change diff; input files are never modified."
     ),
 )
 
@@ -120,6 +122,36 @@ def ifc_validate_required_props(
         offset: Zero-based index of the first returned issue record.
     """
     return t.ifc_validate_required_props(ifc_path, ifc_class, properties, pset_name, limit, offset)
+
+
+@mcp.tool()
+def ifc_set_property(
+    ifc_path: str,
+    output_name: str,
+    pset: str,
+    prop: str,
+    value: str,
+    class_filter: str | None = None,
+    global_ids: list[str] | None = None,
+) -> dict:
+    """Set one property in a Pset on selected elements, writing a NEW IFC under `outputs/`.
+
+    Mutating: the input file is never modified; the edited model lands at
+    `<workspace>/outputs/<output_name>` (collisions -> output_exists) and is
+    re-opened to validate before ok. Requires class_filter and/or global_ids
+    (cap 200); a selector matching nothing answers element_not_found. Values
+    that parse as numbers are stored as IfcInteger/IfcReal, else IfcText.
+
+    Args:
+        ifc_path: Path to the source .ifc file relative to the workspace root.
+        output_name: Plain `.ifc` file name for the new file under `outputs/`.
+        pset: Property set name, e.g. "Pset_WallCommon".
+        prop: Property name, e.g. "FireRating".
+        value: New value string ("2.5" -> IfcReal, "42" -> IfcInteger, else IfcText).
+        class_filter: Optional IFC class selector, e.g. "IfcWall".
+        global_ids: Optional GlobalId selector (cap 200).
+    """
+    return t.ifc_set_property(ifc_path, output_name, pset, prop, value, class_filter, global_ids)
 
 
 def main() -> None:
