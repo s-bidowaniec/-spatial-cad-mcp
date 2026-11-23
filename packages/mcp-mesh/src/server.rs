@@ -13,7 +13,7 @@
 
 use crate::mesh::{
     BBox3D, FaceQuality, MeshFormat, PartSummary, QualitySummary, TopologySummary, analyze_mesh,
-    load_mesh_file,
+    load_mesh_file, write_bbox_slice,
 };
 use cad_envelope::{ToolError, paginate, resolve_input_file, run_envelope};
 use cad_sandbox::WorkspaceSandbox;
@@ -77,6 +77,27 @@ pub struct MeshQueryQualityParams {
     /// Zero-based pagination offset (default 0).
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct MeshSliceBboxParams {
+    /// Path to the source mesh (.2dm, .obj, .stl), relative to MCP_CAD_WORKSPACE_ROOT.
+    pub mesh_path: String,
+    /// 2D XY bounding box [min_x, min_y, max_x, max_y] selecting intersecting faces.
+    pub bbox: [f64; 4],
+    /// Plain output file name (e.g. "slice.obj" or "slice.2dm") written under `<workspace>/outputs/`. Must not already exist.
+    pub output_name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MeshSliceData {
+    mesh_path: String,
+    output_path: String,
+    bbox: [f64; 4],
+    before_vertices: usize,
+    after_vertices: usize,
+    before_faces: usize,
+    after_faces: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -246,6 +267,48 @@ impl MeshServer {
             ))
         })
     }
+
+    #[tool(
+        description = "Mutating tool: clip faces intersecting a 2D XY bbox [min_x, min_y, max_x, max_y] into a NEW `.obj` or `.2dm` file under `<workspace>/outputs/<output_name>`. Never modifies the input mesh and refuses to overwrite existing outputs."
+    )]
+    pub fn mesh_slice_bbox(
+        &self,
+        Parameters(params): Parameters<MeshSliceBboxParams>,
+    ) -> String {
+        run_envelope("mesh_slice_bbox", || {
+            if !params.bbox.iter().all(|v| v.is_finite())
+                || params.bbox[0] > params.bbox[2]
+                || params.bbox[1] > params.bbox[3]
+            {
+                return Err(ToolError::new(
+                    "invalid_input",
+                    "bbox must be finite [min_x, min_y, max_x, max_y] with min <= max.",
+                ));
+            }
+            let resolved_in = resolve_input_file(&self.sandbox, &params.mesh_path)?;
+            let resolved_out = self
+                .sandbox
+                .resolve_output(&params.output_name)
+                .map_err(ToolError::from_sandbox)?;
+            let mesh = load_mesh_file(&resolved_in)?;
+            let before_vertices = mesh.vertices.len();
+            let before_faces = mesh.faces.len();
+            let (after_vertices, after_faces) =
+                write_bbox_slice(&mesh, params.bbox, &resolved_out)?;
+            Ok((
+                MeshSliceData {
+                    mesh_path: params.mesh_path,
+                    output_path: format!("outputs/{}", params.output_name),
+                    bbox: params.bbox,
+                    before_vertices,
+                    after_vertices,
+                    before_faces,
+                    after_faces,
+                },
+                None,
+            ))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -311,6 +374,27 @@ E4Q 2 1 3 4 5 2
         assert_eq!(qa["ok"], true);
         // Sliver triangle 1 has min angle ~1.15 deg
         assert_eq!(qa["data"]["faces"][0]["face_id"], 1);
+
+        let sliced: Value =
+            serde_json::from_str(&srv.mesh_slice_bbox(Parameters(MeshSliceBboxParams {
+                mesh_path: "test.2dm".to_string(),
+                bbox: [0.0, 0.0, 10.0, 0.5],
+                output_name: "clip.2dm".to_string(),
+            })))
+            .unwrap();
+        assert_eq!(sliced["ok"], true);
+        assert_eq!(sliced["data"]["before_faces"], 2);
+        assert!(dir.join("outputs/clip.2dm").is_file());
+
+        let dup: Value =
+            serde_json::from_str(&srv.mesh_slice_bbox(Parameters(MeshSliceBboxParams {
+                mesh_path: "test.2dm".to_string(),
+                bbox: [0.0, 0.0, 10.0, 0.5],
+                output_name: "clip.2dm".to_string(),
+            })))
+            .unwrap();
+        assert_eq!(dup["ok"], false);
+        assert_eq!(dup["error"]["code"], "output_exists");
 
         let _ = fs::remove_dir_all(&dir);
     }

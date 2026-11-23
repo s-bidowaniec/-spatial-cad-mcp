@@ -1,6 +1,6 @@
 [package]
 name = "mcp-hdm"
-description = "MCP server for hydrodynamic model data (HEC-RAS HDF, SWMM inp/out, TELEMAC Selafin, Delft3D netCDF) (Rust scaffold)"
+description = "MCP server for open-standard hydrodynamic models (TELEMAC Selafin .slf, EPA SWMM .inp, SMS .2dm; pure Rust)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+cad-envelope.workspace = true
+cad-sandbox.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rmcp.workspace = true
 tokio.workspace = true

@@ -1,22 +1,20 @@
-//! Entry point for the mcp-hdm server: serve over stdio.
+#![forbid(unsafe_code)]
+//! Entry point for the `mcp-hdm` server: serve over stdio.
 //!
-//! Run inside the MCP client config:
-//!
-//! ```json
-//! { "mcpServers": { "mcp-hdm": {
-//!     "command": "cargo", "args": ["run", "-p", "mcp-hdm"],
-//!     "env": { "MCP_CAD_WORKSPACE_ROOT": "/abs/path/to/workspace" } } } }
-//! ```
+//! Refuses to start without `MCP_CAD_WORKSPACE_ROOT` set to an existing directory.
 
+mod hdm;
 mod server;
 
 use anyhow::Result;
+use cad_sandbox::WorkspaceSandbox;
 use rmcp::ServiceExt;
 use rmcp::transport::stdio;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let service = server::HdmServer.serve(stdio()).await?;
+    let sandbox = WorkspaceSandbox::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let service = server::HdmServer::new(sandbox).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }

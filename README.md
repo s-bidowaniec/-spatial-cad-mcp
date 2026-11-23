@@ -5,10 +5,10 @@
 
 ## Project status: pre-alpha, concept stage
 
-This repository is a **pre-alpha monorepo**. `mcp-ifc` (Python), `mcp-dxf` (Rust), and
-`mcp-mesh` (Rust) implement read-only MVP tools; `mcp-gis` and `mcp-hdm` are scaffolds whose
-tools return `not_implemented`. Tool names, response envelopes and the package layout may change
-without notice - no semver guarantees until the first tagged release.
+This repository is a **pre-alpha monorepo**. All five MCP servers (`mcp-ifc` in Python; `mcp-dxf`,
+`mcp-gis`, `mcp-hdm`, and `mcp-mesh` in Rust) now implement sandboxed MVP tools speaking the same
+JSON envelope contract. Tool names, response envelopes and the package layout may still evolve
+before the first tagged release.
 
 Modular, deterministic **MCP servers** for CAD / BIM / GIS / hydrodynamic-model / mesh workflows,
 designed for **AI-to-AI** use: compact summaries, paginated queries, strict workspace sandboxing
@@ -20,10 +20,10 @@ Four basic tool groups:
 | --- | --- | --- | --- |
 | BIM | `mcp-ifc` | IFC models: summary, element queries, psets, validation | MVP (Python) |
 | CAD | `mcp-dxf` | 2D/3D ASCII DXF: summary, LibreDWG mesh repair, Z=0 audit, entity & text queries | MVP (Rust) |
-| GIS | `mcp-gis` | GeoPackage / GeoJSON / Shapefile datasets | scaffold (Rust) |
-| HDM | `mcp-hdm` | hydrodynamic models: HEC-RAS / SWMM / TELEMAC / Delft3D | scaffold (Rust) |
+| GIS | `mcp-gis` | GeoPackage (`.gpkg`) & GeoJSON: summary, CRS audit, schema, feature queries, bbox export | MVP (Rust) |
+| HDM | `mcp-hdm` | Open-standard HDM (TELEMAC Selafin `.slf`/`.res`, EPA SWMM `.inp`, SMS `.2dm`): summary & time series | MVP (Rust) |
 
-plus 2D/3D mesh inspection & QA (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
+plus 2D/3D mesh inspection, QA & bbox slicing (`mcp-mesh`, MVP in Rust: `.2dm`/`.obj`/`.stl`) and the `cadctl` CLI.
 
 Monorepo layout (Python where the ecosystem is strongest, Rust everywhere else):
 
@@ -32,9 +32,9 @@ spatial-cad-mcp/
 ├── packages/
 │   ├── mcp-ifc/          # MVP server: IFC inspection/query/validation (Python, ifcopenshell)
 │   ├── mcp-dxf/          # MVP server: ASCII DXF summary, entity & text queries (pure Rust, rmcp)
-│   ├── mcp-gis/          # GIS datasets: GeoPackage/GeoJSON/Shapefile (Rust scaffold, rmcp)
-│   ├── mcp-hdm/          # hydrodynamic models: HEC-RAS/SWMM/TELEMAC/Delft3D (Rust scaffold, rmcp)
-│   └── mcp-mesh/         # MVP server: 2D/3D mesh (.2dm/.obj/.stl) topology & QA (pure Rust, rmcp)
+│   ├── mcp-gis/          # MVP server: GeoPackage & GeoJSON summary, schema, queries, bbox export (Rust, rusqlite, rmcp)
+│   ├── mcp-hdm/          # MVP server: TELEMAC Selafin, SWMM .inp, SMS .2dm summary & time series (pure Rust, rmcp)
+│   └── mcp-mesh/         # MVP server: 2D/3D mesh (.2dm/.obj/.stl) topology, QA & bbox slice (pure Rust, rmcp)
 ├── shared/
 │   └── mcp_cad_core/     # sandboxing, response envelopes, pagination, stderr logging (Python)
 ├── crates/

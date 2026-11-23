@@ -906,6 +906,107 @@ pub fn analyze_mesh(mesh: &Mesh) -> MeshAnalysis {
     }
 }
 
+/// Slice a mesh by 2D XY bbox `[min_x, min_y, max_x, max_y]`, compacting
+/// referenced vertices and writing a new `.2dm` or `.obj` file.
+pub fn write_bbox_slice(
+    mesh: &Mesh,
+    bbox: [f64; 4],
+    output_path: &Path,
+) -> Result<(usize, usize), ToolError> {
+    let mut kept_faces = Vec::new();
+    let mut old_to_new: HashMap<usize, usize> = HashMap::new();
+    let mut new_verts: Vec<[f64; 3]> = Vec::new();
+
+    for face in &mesh.faces {
+        let mut fmin_x = f64::INFINITY;
+        let mut fmin_y = f64::INFINITY;
+        let mut fmax_x = f64::NEG_INFINITY;
+        let mut fmax_y = f64::NEG_INFINITY;
+        for &vi in &face.verts {
+            let v = mesh.vertices[vi];
+            fmin_x = fmin_x.min(v[0]);
+            fmin_y = fmin_y.min(v[1]);
+            fmax_x = fmax_x.max(v[0]);
+            fmax_y = fmax_y.max(v[1]);
+        }
+        if fmax_x < bbox[0] || fmin_x > bbox[2] || fmax_y < bbox[1] || fmin_y > bbox[3] {
+            continue;
+        }
+        let mut mapped = Vec::with_capacity(face.verts.len());
+        for &vi in &face.verts {
+            let new_idx = *old_to_new.entry(vi).or_insert_with(|| {
+                let idx = new_verts.len();
+                new_verts.push(mesh.vertices[vi]);
+                idx
+            });
+            mapped.push(new_idx);
+        }
+        kept_faces.push((face.id, mapped, face.part.clone()));
+    }
+
+    let ext = output_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+
+    let mut out = String::new();
+    if ext == "2dm" {
+        out.push_str("MESH2D\n");
+        for (i, v) in new_verts.iter().enumerate() {
+            out.push_str(&format!("ND {} {} {} {}\n", i + 1, v[0], v[1], v[2]));
+        }
+        for (idx, (_, verts, part)) in kept_faces.iter().enumerate() {
+            let mat: i64 = part
+                .strip_prefix("material_")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1);
+            if verts.len() == 3 {
+                out.push_str(&format!(
+                    "E3T {} {} {} {} {}\n",
+                    idx + 1,
+                    verts[0] + 1,
+                    verts[1] + 1,
+                    verts[2] + 1,
+                    mat
+                ));
+            } else if verts.len() == 4 {
+                out.push_str(&format!(
+                    "E4Q {} {} {} {} {} {}\n",
+                    idx + 1,
+                    verts[0] + 1,
+                    verts[1] + 1,
+                    verts[2] + 1,
+                    verts[3] + 1,
+                    mat
+                ));
+            }
+        }
+    } else {
+        out.push_str("# Sliced by spatial-cad-mcp (mcp-mesh)\n");
+        for v in &new_verts {
+            out.push_str(&format!("v {} {} {}\n", v[0], v[1], v[2]));
+        }
+        let mut last_part = String::new();
+        for (_, verts, part) in &kept_faces {
+            if *part != last_part {
+                out.push_str(&format!("g {part}\n"));
+                last_part = part.clone();
+            }
+            out.push('f');
+            for &vi in verts {
+                out.push_str(&format!(" {}", vi + 1));
+            }
+            out.push('\n');
+        }
+    }
+
+    std::fs::write(output_path, out).map_err(|e| {
+        ToolError::new("internal_error", format!("Failed writing sliced mesh: {e}"))
+    })?;
+    Ok((new_verts.len(), kept_faces.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
