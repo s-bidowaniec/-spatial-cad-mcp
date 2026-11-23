@@ -73,7 +73,7 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
 
 | Group | Package | Language | Tools (bold = implemented) |
 | --- | --- | --- | --- |
-| BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_elements**, **ifc_get_psets**, **ifc_validate_required_props** |
+| BIM | `packages/mcp-ifc` | Python (ifcopenshell) | **ifc_summary**, **ifc_query_spatial**, **ifc_query_elements** (with `container_global_id`), **ifc_get_psets**, **ifc_validate_required_props** |
 | CAD | `packages/mcp-dxf` | Rust (pure Rust + rmcp) | **dxf_summary**, **dxf_query_layers**, **dxf_query_entities**, **dxf_extract_text**, **dxf_export_slice**, **dxf_to_mesh**, **dxf_centerline**, **dxf_labels_to_3d** |
 | GIS | `packages/mcp-gis` | Rust (rusqlite + rmcp) | **gis_summary**, **gis_extract_schema**, **gis_query_features**, **gis_query_point**, **gis_export_bbox** |
 | HDM | `packages/mcp-hdm` | Rust (pure Rust + rmcp) | **hdm_summary**, **hdm_query_timeseries**, **hdm_query_profiles**, **hdm_export_slice** |
