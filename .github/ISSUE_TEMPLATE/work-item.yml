@@ -1,0 +1,39 @@
+name: "Work item or decision gate"
+description: "Plan an implementation ticket, research task, or architecture gate."
+title: "[KEY] "
+body:
+  - type: textarea
+    id: scope
+    attributes:
+      label: "Scope and outcome"
+      description: "Inputs, outputs, and the boundaries of this ticket. Keep one scope per PR."
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies and contracts"
+      description: "Separate start and acceptance dependencies. Link the affected package, the envelope contract, and the ADR."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Acceptance criteria"
+      description: "Measurable outcomes, negative/refusal cases, and the required environment or approved limit."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "Tests and fixtures"
+      description: "Runnable selectors or planned test files; synthetic fixtures built in tmp_path. Real data stays outside Git and GitHub."
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: "Responsible owner"
+      description: "Person or agent, with GitHub account if agreed. Use unclaimed otherwise."
+    validations:
+      required: true

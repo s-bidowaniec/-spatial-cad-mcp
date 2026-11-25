@@ -1,0 +1,23 @@
+name: "Feature request"
+description: "Propose a new tool, capability, or behavior change."
+labels: ["type:feature", "status:needs-work"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem and desired behavior"
+      description: "Which tool group (ifc/dxf/gis/hdm/mesh/core), who needs it, and representative envelope-shaped inputs and outputs."
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: "Architecture and compatibility"
+      description: "Link affected Issues, ADRs, the envelope/error-code surface, sandbox rules, and consumers."
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Verification"
+      description: "Measurable success and refusal cases, plus a synthetic fixture or test plan."
+    validations:
+      required: true

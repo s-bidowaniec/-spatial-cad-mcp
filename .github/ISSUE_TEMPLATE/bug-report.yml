@@ -1,0 +1,32 @@
+name: "Bug report"
+description: "Report a reproducible failure with synthetic inputs or anonymous diagnostics."
+labels: ["type:bug", "status:needs-work"]
+body:
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: "Steps and minimal synthetic input"
+      description: "Tool name, arguments, fixture construction (tests build inputs in tmp_path), affected commit. Keep real model data and access details out of GitHub."
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: "Observed envelope"
+      description: "The full JSON envelope, especially error.code, or the incorrect output."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected envelope"
+      description: "The invariant, the expected error code, or an independent calculation."
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "OS, Python/uv and Rust versions, MCP host when applicable."
+    validations:
+      required: true
