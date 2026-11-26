@@ -21,6 +21,8 @@ Route each task to its guide, package, tests and decision records. Read this whe
 ## Decisions and process
 
 - [ADR index](adr/README.md) - accepted decisions and proposals awaiting review.
+- [Envelope contract](../schemas/envelope.v1.schema.json) - the cross-language JSON Schema every tool result validates against (`tests/test_envelope_schema.py`).
+- [Agent knowledge base](knowledge/README.md) - tool-usage patterns and lessons learned, written by agents while working here.
 - [GitHub governance](github-governance.md) - issue/PR forms, label taxonomy, merge rules.
 - [Writing docs](writing-docs.md) - doc style and link rules, enforced by `tools/check_docs.py` in CI.
 - [Onboarding: run the checks](onboarding.md#run-the-checks) - the commands CI runs on every PR.

@@ -55,7 +55,17 @@ Always the same two shapes (see `mcp_cad_core.responses`):
   iteration-order leaks in `data`.
 - Ordering is explicit: stable sort keys (e.g. class name), documented in the docstring.
 
-## 6. Checklists for new tools
+## 6. Agent-facing metadata (annotations, instructions, actionable errors)
+
+- Set MCP annotations on **every** tool, explicitly: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` (plus `title`). Read-only tools: `readOnlyHint=true, destructiveHint=false, idempotentHint=true, openWorldHint=false`. Mutators: `readOnlyHint=false, destructiveHint=false` (additive only - new files under `outputs/`, never overwrites), `idempotentHint=false`, `openWorldHint=false`. Annotations are hints for clients (confirmation prompts, read-only parallelism), not a security control - the sandbox stays authoritative. `tools/check_tools.py` enforces this in CI.
+- Every server sets `instructions` (the server-level prompt hosts may inject): the call order (`*_summary` first), the two envelope shapes, the sandbox rule. Keep it short - it competes with the real system prompt.
+- Descriptions are the tool's prompt: 80-2048 chars (some clients truncate at 2048), most important sentence first, state the kind (`Read-only ...` / `Mutating tool: ...`), what it returns, page caps, and when to prefer it over siblings. Every parameter gets a description with units, bounds and an example - the SDK derives `inputSchema` from exactly this text.
+- Errors must be actionable: `message` says what to do next (with an example value), `code` is the branching key, `retryable` only for transient failures, `hints` lists concrete follow-up tool calls.
+- Budget the caller's context: tool definitions load on every turn (100-500 tokens each - keep the surface small and namespaced), and clients cap results (e.g. Claude Code warns at 10k tokens, hard cap 25k). Paginate lists (cap 200/page), truncate long values with a marker, and return a file path under `outputs/` for big artifacts instead of inlining them.
+- Evals over vibes: before changing a tool surface, run a small eval set (20-50 realistic tasks with verifiable outcomes) and read the transcripts for wrong tool picks and wrong arguments.
+- Structured output: when a result has a fixed shape, declare `outputSchema` / `structuredContent` (and keep the serialized JSON in the text block for older clients) - roadmap item.
+
+## 7. Checklists for new tools
 
 Adding a tool to a Python server:
 

@@ -131,9 +131,7 @@ pub fn load_mesh_file(path: &Path) -> Result<Mesh, ToolError> {
         "stl" => parse_stl(&raw),
         other => Err(ToolError::new(
             "unsupported_format",
-            format!(
-                "Unsupported mesh extension '.{other}'. Supported formats: .2dm, .obj, .stl."
-            ),
+            format!("Unsupported mesh extension '.{other}'. Supported formats: .2dm, .obj, .stl."),
         )),
     }
 }
@@ -306,7 +304,10 @@ pub fn parse_obj(text: &str) -> Result<Mesh, ToolError> {
                     if idx >= vertices.len() {
                         return Err(ToolError::new(
                             "cannot_open_mesh",
-                            format!("OBJ face references vertex {idx} beyond vertex count {}.", vertices.len()),
+                            format!(
+                                "OBJ face references vertex {idx} beyond vertex count {}.",
+                                vertices.len()
+                            ),
                         ));
                     }
                     poly.push(idx);
@@ -405,7 +406,10 @@ fn parse_stl_binary(raw: &[u8]) -> Result<Mesh, ToolError> {
     if raw.len() < expected {
         return Err(ToolError::new(
             "cannot_open_mesh",
-            format!("Truncated binary STL: expected {expected} bytes for {tri_count} triangles, got {}.", raw.len()),
+            format!(
+                "Truncated binary STL: expected {expected} bytes for {tri_count} triangles, got {}.",
+                raw.len()
+            ),
         ));
     }
 
@@ -754,9 +758,17 @@ pub fn analyze_mesh(mesh: &Mesh) -> MeshAnalysis {
             face.id,
             if n == 3 { "triangle" } else { "quad" },
             face.part.clone(),
-            if min_angle.is_finite() { round3(min_angle) } else { 0.0 },
+            if min_angle.is_finite() {
+                round3(min_angle)
+            } else {
+                0.0
+            },
             round3(max_angle),
-            if min_edge.is_finite() { round4(min_edge) } else { 0.0 },
+            if min_edge.is_finite() {
+                round4(min_edge)
+            } else {
+                0.0
+            },
             round4(max_edge),
             round4(area),
             quad_aspect,
@@ -778,8 +790,10 @@ pub fn analyze_mesh(mesh: &Mesh) -> MeshAnalysis {
             let area_b = face_areas[b];
             if area_a > 1e-12 && area_b > 1e-12 {
                 let ratio = area_a.max(area_b) / area_a.min(area_b);
-                worst_ratio_per_face[a] = Some(worst_ratio_per_face[a].map_or(ratio, |v| v.max(ratio)));
-                worst_ratio_per_face[b] = Some(worst_ratio_per_face[b].map_or(ratio, |v| v.max(ratio)));
+                worst_ratio_per_face[a] =
+                    Some(worst_ratio_per_face[a].map_or(ratio, |v| v.max(ratio)));
+                worst_ratio_per_face[b] =
+                    Some(worst_ratio_per_face[b].map_or(ratio, |v| v.max(ratio)));
             }
         }
     }
@@ -867,7 +881,11 @@ pub fn analyze_mesh(mesh: &Mesh) -> MeshAnalysis {
             }),
         })
         .collect();
-    parts.sort_by(|a, b| b.face_count.cmp(&a.face_count).then_with(|| a.part.cmp(&b.part)));
+    parts.sort_by(|a, b| {
+        b.face_count
+            .cmp(&a.face_count)
+            .then_with(|| a.part.cmp(&b.part))
+    });
 
     let quality = QualitySummary {
         min_angle_deg: (!mesh.faces.is_empty()).then_some(round3(q_min_angle)),
@@ -986,10 +1004,7 @@ pub fn sample_elevations(mesh: &Mesh, points: &[[f64; 2]]) -> Vec<ElevationSampl
             let mut best: Option<(f64, i64, String)> = None;
             for (fi, face) in mesh.faces.iter().enumerate() {
                 let bb = face_aabbs[fi];
-                if px < bb[0] - 1e-9
-                    || px > bb[2] + 1e-9
-                    || py < bb[1] - 1e-9
-                    || py > bb[3] + 1e-9
+                if px < bb[0] - 1e-9 || px > bb[2] + 1e-9 || py < bb[1] - 1e-9 || py > bb[3] + 1e-9
                 {
                     continue;
                 }
@@ -1243,7 +1258,8 @@ pub struct MeshDiffSummary {
 /// statistics, and face-ID topology/part diff.
 pub fn diff_meshes(before: &Mesh, after: &Mesh, xy_tol: f64) -> MeshDiffSummary {
     let inv = 1.0 / xy_tol.max(1e-9);
-    let key_xy = |v: [f64; 3]| -> [i64; 2] { [(v[0] * inv).round() as i64, (v[1] * inv).round() as i64] };
+    let key_xy =
+        |v: [f64; 3]| -> [i64; 2] { [(v[0] * inv).round() as i64, (v[1] * inv).round() as i64] };
 
     let mut before_xy: HashMap<[i64; 2], f64> = HashMap::with_capacity(before.vertices.len());
     for &v in &before.vertices {
@@ -1444,7 +1460,11 @@ fn build_shared_edge_pairs(faces: &[Face]) -> (EdgeIndexList, SharedEdgePairList
     (edge_list, pairs)
 }
 
-fn measure_height_ratios(verts: &[[f64; 3]], faces: &[Face], limit: f64) -> (usize, Option<f64>, Option<f64>) {
+fn measure_height_ratios(
+    verts: &[[f64; 3]],
+    faces: &[Face],
+    limit: f64,
+) -> (usize, Option<f64>, Option<f64>) {
     let (_, pairs) = build_shared_edge_pairs(faces);
     let heights: Vec<f64> = faces.iter().map(|f| face_height_xy(verts, f)).collect();
     let threshold = limit + 1e-8;
@@ -1533,8 +1553,16 @@ pub fn improve_mesh_flips(
             {
                 continue;
             }
-            let opp_a = out_mesh.faces[a].verts.iter().copied().find(|&x| x != u && x != v);
-            let opp_b = out_mesh.faces[b].verts.iter().copied().find(|&x| x != u && x != v);
+            let opp_a = out_mesh.faces[a]
+                .verts
+                .iter()
+                .copied()
+                .find(|&x| x != u && x != v);
+            let opp_b = out_mesh.faces[b]
+                .verts
+                .iter()
+                .copied()
+                .find(|&x| x != u && x != v);
             let (Some(oa), Some(ob)) = (opp_a, opp_b) else {
                 continue;
             };

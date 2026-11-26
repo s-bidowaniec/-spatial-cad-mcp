@@ -24,4 +24,6 @@ How to write and link docs in this repo. Docs are read by AI agents first - keep
 | Decisions | [adr/](adr/README.md) |
 | Coordination and governance | [planning/README.md](../planning/README.md), [github-governance.md](github-governance.md), [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Per-package usage (tools, run, tests) | `packages/*/README.md`, `crates/*/README.md`, `shared/*/README.md` |
+| Agent knowledge base (patterns, lessons learned) | [knowledge/](knowledge/README.md) |
+| Cross-language contracts | `schemas/` (e.g. `envelope.v1.schema.json`) |
 | Machine-readable entry for external agents | `llms.txt` at the root |

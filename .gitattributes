@@ -1,0 +1,6 @@
+# Normalize line endings for cross-platform (Linux/Windows) agents and contributors.
+* text=auto eol=lf
+
+# Lockfiles are text but huge generated diffs; never merge them.
+Cargo.lock text -diff
+uv.lock text -diff

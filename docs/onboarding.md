@@ -22,10 +22,14 @@ From the repository root, Python 3.11+ and Rust 1.88+:
 uv sync --all-packages
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
-cargo check --workspace && cargo clippy --workspace --all-targets && cargo test --workspace
+cargo fmt --all -- --check
+cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 python tools/check_docs.py      # links, anchors, cited paths, AGENTS.md budget
 python tools/check_no_data.py   # data policy: no real model files in Git
+python tools/check_tools.py     # tool definitions: names, descriptions, annotations
 ```
+
+Or run the whole gate at once: `bash tools/check_all.sh` (same set, CI runs it in two jobs).
 
 CI runs the same set on every push to `main` and every PR (`.github/workflows/ci.yml`). Acceptance evidence requires explicitly running the relevant subset and checking its expectations.
 

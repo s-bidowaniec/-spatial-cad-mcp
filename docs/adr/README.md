@@ -5,6 +5,7 @@ Start from [planning](../../planning/README.md) and [GitHub governance](../githu
 | ADR | Decision | Status |
 | --- | --- | --- |
 | [0001](0001-repository-first-coordination.md) | Repository First Coordination | Accepted |
+| [0002](0002-language-boundary.md) | Language boundary: separate stdio processes + JSON envelope contract, no PyO3 | Accepted |
 
 ## Decision flow
 

@@ -156,10 +156,17 @@ fn validate_bbox(b: [f64; 4]) -> Result<(), ToolError> {
     Ok(())
 }
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl GisServer {
     #[tool(
-        description = "Read-only orientation summary of a GIS vector dataset (.gpkg, .geojson): format, layers, CRS/EPSG, geometry types, feature counts, extents, and CRS-vs-coordinate sanity warnings. Call this first before querying features."
+        description = "Read-only orientation summary of a GIS vector dataset (.gpkg, .geojson): format, layers, CRS/EPSG, geometry types, feature counts, extents, and CRS-vs-coordinate sanity warnings. Call this first before querying features.",
+        annotations(
+            title = "GIS summary",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn gis_summary(
         &self,
@@ -182,7 +189,14 @@ impl GisServer {
     }
 
     #[tool(
-        description = "Read-only attribute schema inspector for a GIS dataset (.gpkg, .geojson): field names, data types, null counts, and null rates per layer."
+        description = "Read-only attribute schema inspector for a GIS dataset (.gpkg, .geojson): field names, data types, null counts, and null rates per layer.",
+        annotations(
+            title = "GIS extract schema",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn gis_extract_schema(
         &self,
@@ -202,7 +216,14 @@ impl GisServer {
     }
 
     #[tool(
-        description = "Read-only paginated feature query for a GIS dataset (.gpkg, .geojson) filtered by layer, 2D bbox [min_x, min_y, max_x, max_y], and attribute substring. Geometries are summarized (type, vertex count, bbox) rather than dumped raw. Hard page cap: 200."
+        description = "Read-only paginated feature query for a GIS dataset (.gpkg, .geojson) filtered by layer, 2D bbox [min_x, min_y, max_x, max_y], and attribute substring. Geometries are summarized (type, vertex count, bbox) rather than dumped raw. Hard page cap: 200.",
+        annotations(
+            title = "GIS query features",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn gis_query_features(
         &self,
@@ -252,12 +273,16 @@ impl GisServer {
     }
 
     #[tool(
-        description = "Mutating tool: export features intersecting a 2D bbox [min_x, min_y, max_x, max_y] to a NEW GeoJSON file under `<workspace>/outputs/<output_name>`. Never modifies the source dataset and refuses to overwrite existing outputs."
+        description = "Mutating tool: export features intersecting a 2D bbox [min_x, min_y, max_x, max_y] to a NEW GeoJSON file under `<workspace>/outputs/<output_name>`. Never modifies the source dataset and refuses to overwrite existing outputs.",
+        annotations(
+            title = "GIS export bbox",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    pub fn gis_export_bbox(
-        &self,
-        Parameters(params): Parameters<GisExportBboxParams>,
-    ) -> String {
+    pub fn gis_export_bbox(&self, Parameters(params): Parameters<GisExportBboxParams>) -> String {
         run_envelope("gis_export_bbox", || {
             validate_bbox(params.bbox)?;
             let resolved_in = resolve_input_file(&self.sandbox, &params.dataset_path)?;
@@ -288,12 +313,16 @@ impl GisServer {
     }
 
     #[tool(
-        description = "Read-only spatial point query on a GIS dataset (.gpkg, .geojson): finds features containing [x, y] (exact point-in-polygon with hole rings) or within `radius` (sorted by containment, then distance). Paginated (hard cap 200)."
+        description = "Read-only spatial point query on a GIS dataset (.gpkg, .geojson): finds features containing [x, y] (exact point-in-polygon with hole rings) or within `radius` (sorted by containment, then distance). Paginated (hard cap 200).",
+        annotations(
+            title = "GIS query point",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    pub fn gis_query_point(
-        &self,
-        Parameters(params): Parameters<GisQueryPointParams>,
-    ) -> String {
+    pub fn gis_query_point(&self, Parameters(params): Parameters<GisQueryPointParams>) -> String {
         run_envelope("gis_query_point", || {
             if !params.xy.iter().all(|v| v.is_finite()) {
                 return Err(ToolError::new(
@@ -309,12 +338,8 @@ impl GisServer {
                 ));
             }
             let resolved = resolve_input_file(&self.sandbox, &params.dataset_path)?;
-            let (layer_name, mut matches) = query_features_by_point(
-                &resolved,
-                params.layer.as_deref(),
-                params.xy,
-                radius,
-            )?;
+            let (layer_name, mut matches) =
+                query_features_by_point(&resolved, params.layer.as_deref(), params.xy, radius)?;
 
             let mut truncated_values = 0usize;
             for m in &mut matches {
@@ -348,6 +373,11 @@ impl GisServer {
         })
     }
 }
+
+#[rmcp::tool_handler(
+    instructions = "Read-only GIS orientation, schema and feature query tools plus an output-isolated bbox export. Start with gis_summary, then gis_extract_schema or gis_query_features / gis_query_point. The mutator gis_export_bbox writes a NEW GeoJSON under <workspace>/outputs and never modifies inputs. Every tool returns a JSON envelope {ok, data, meta} or {ok:false, error:{code, message, retryable}}; paths are relative to the workspace root and sandboxed."
+)]
+impl rmcp::handler::server::ServerHandler for GisServer {}
 
 #[cfg(test)]
 mod tests {
@@ -384,7 +414,13 @@ mod tests {
             })))
             .unwrap();
         assert_eq!(sch["ok"], true);
-        assert_eq!(sch["data"]["schemas"][0]["fields"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            sch["data"]["schemas"][0]["fields"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
 
         let q: Value =
             serde_json::from_str(&srv.gis_query_features(Parameters(GisQueryFeaturesParams {
@@ -452,49 +488,46 @@ mod tests {
         fs::write(dir.join("zones.geojson"), poly_gj.to_string()).unwrap();
 
         // Point inside exterior ring & outside hole -> contains=true, distance=0
-        let hit: Value = serde_json::from_str(&srv.gis_query_point(Parameters(
-            GisQueryPointParams {
+        let hit: Value =
+            serde_json::from_str(&srv.gis_query_point(Parameters(GisQueryPointParams {
                 dataset_path: "zones.geojson".to_string(),
                 xy: [2.0, 2.0],
                 radius: Some(0.0),
                 layer: None,
                 limit: Some(10),
                 offset: Some(0),
-            },
-        )))
-        .unwrap();
+            })))
+            .unwrap();
         assert_eq!(hit["ok"], true);
         assert_eq!(hit["data"]["matches"].as_array().unwrap().len(), 1);
         assert_eq!(hit["data"]["matches"][0]["fid"], 10);
         assert_eq!(hit["data"]["matches"][0]["contains"], true);
 
         // Point inside hole -> NOT contained at radius=0
-        let hole: Value = serde_json::from_str(&srv.gis_query_point(Parameters(
-            GisQueryPointParams {
+        let hole: Value =
+            serde_json::from_str(&srv.gis_query_point(Parameters(GisQueryPointParams {
                 dataset_path: "zones.geojson".to_string(),
                 xy: [5.0, 5.0],
                 radius: Some(0.0),
                 layer: None,
                 limit: Some(10),
                 offset: Some(0),
-            },
-        )))
-        .unwrap();
+            })))
+            .unwrap();
         assert_eq!(hole["ok"], true);
         assert_eq!(hole["data"]["matches"].as_array().unwrap().len(), 0);
 
         // Radius search near (11.5, 5.0) with radius=2.0 hits both marker (d=0.5) and polygon edge (d=1.5)
-        let near: Value = serde_json::from_str(&srv.gis_query_point(Parameters(
-            GisQueryPointParams {
+        let near: Value =
+            serde_json::from_str(&srv.gis_query_point(Parameters(GisQueryPointParams {
                 dataset_path: "zones.geojson".to_string(),
                 xy: [11.5, 5.0],
                 radius: Some(2.0),
                 layer: None,
                 limit: Some(10),
                 offset: Some(0),
-            },
-        )))
-        .unwrap();
+            })))
+            .unwrap();
         assert_eq!(near["ok"], true);
         assert_eq!(near["data"]["matches"].as_array().unwrap().len(), 2);
         assert_eq!(near["data"]["matches"][0]["fid"], 20);

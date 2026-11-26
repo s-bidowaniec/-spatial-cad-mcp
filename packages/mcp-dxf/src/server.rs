@@ -253,10 +253,17 @@ struct ExtractTextData {
     texts: Vec<TextRecord>,
 }
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl DxfServer {
     #[tool(
-        description = "Read-only orientation summary of an ASCII DXF drawing: version, $INSUNITS, top layers, entity counts by type, 3D extents, Z=0 audit, coordinate convention hint, and LibreDWG repair notes. Call this first before querying entities or text."
+        description = "Read-only orientation summary of an ASCII DXF drawing: version, $INSUNITS, top layers, entity counts by type, 3D extents, Z=0 audit, coordinate convention hint, and LibreDWG repair notes. Call this first before querying entities or text.",
+        annotations(
+            title = "DXF summary",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn dxf_summary(
         &self,
@@ -304,7 +311,14 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Read-only paginated query of DXF entities filtered by layer, entity_type, has_z, or 2D bbox [min_x, min_y, max_x, max_y]. Returns compact metadata (handle, type, layer, vertex count, 3D bbox, length) without dumping raw coordinates. Hard page cap: 200."
+        description = "Read-only paginated query of DXF entities filtered by layer, entity_type, has_z, or 2D bbox [min_x, min_y, max_x, max_y]. Returns compact metadata (handle, type, layer, vertex count, 3D bbox, length) without dumping raw coordinates. Hard page cap: 200.",
+        annotations(
+            title = "DXF query entities",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn dxf_query_entities(
         &self,
@@ -374,22 +388,29 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Read-only paginated extraction of TEXT, MTEXT, and ATTRIB annotations from a DXF drawing with AutoCAD control codes stripped. Supports layer and substring filters. Hard page cap: 200."
+        description = "Read-only paginated extraction of TEXT, MTEXT, and ATTRIB annotations from a DXF drawing with AutoCAD control codes stripped. Supports layer and substring filters. Hard page cap: 200.",
+        annotations(
+            title = "DXF extract text",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    pub fn dxf_extract_text(
-        &self,
-        Parameters(params): Parameters<DxfExtractTextParams>,
-    ) -> String {
+    pub fn dxf_extract_text(&self, Parameters(params): Parameters<DxfExtractTextParams>) -> String {
         run_envelope("dxf_extract_text", || {
             let resolved = resolve_input_file(&self.sandbox, &params.dxf_path)?;
             let doc = parse_dxf_file(&resolved)?;
 
             let layer_lc = params.layer.as_deref().map(str::to_ascii_lowercase);
             let case_sensitive = params.case_sensitive.unwrap_or(false);
-            let needle_lc = params
-                .contains
-                .as_deref()
-                .map(|s| if case_sensitive { s.to_string() } else { s.to_ascii_lowercase() });
+            let needle_lc = params.contains.as_deref().map(|s| {
+                if case_sensitive {
+                    s.to_string()
+                } else {
+                    s.to_ascii_lowercase()
+                }
+            });
 
             let mut truncated_values = 0usize;
             let filtered: Vec<TextRecord> = doc
@@ -440,12 +461,16 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Read-only paginated breakdown of DXF layers with per-layer entity counts, type histogram, Z=0 count, and 3D bounding box. Hard page cap: 200."
+        description = "Read-only paginated breakdown of DXF layers with per-layer entity counts, type histogram, Z=0 count, and 3D bounding box. Hard page cap: 200.",
+        annotations(
+            title = "DXF query layers",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    pub fn dxf_query_layers(
-        &self,
-        Parameters(params): Parameters<DxfQueryLayersParams>,
-    ) -> String {
+    pub fn dxf_query_layers(&self, Parameters(params): Parameters<DxfQueryLayersParams>) -> String {
         run_envelope("dxf_query_layers", || {
             let resolved = resolve_input_file(&self.sandbox, &params.dxf_path)?;
             let doc = parse_dxf_file(&resolved)?;
@@ -464,12 +489,16 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Mutating tool: extract entities intersecting a 2D bbox [min_x, min_y, max_x, max_y] (with optional layer/entity_type filters) into a NEW ASCII DXF under `<workspace>/outputs/<output_name>`. Preserves original entity geometry verbatim, never modifies inputs, and refuses to overwrite existing outputs."
+        description = "Mutating tool: extract entities intersecting a 2D bbox [min_x, min_y, max_x, max_y] (with optional layer/entity_type filters) into a NEW ASCII DXF under `<workspace>/outputs/<output_name>`. Preserves original entity geometry verbatim, never modifies inputs, and refuses to overwrite existing outputs.",
+        annotations(
+            title = "DXF export slice",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    pub fn dxf_export_slice(
-        &self,
-        Parameters(params): Parameters<DxfExportSliceParams>,
-    ) -> String {
+    pub fn dxf_export_slice(&self, Parameters(params): Parameters<DxfExportSliceParams>) -> String {
         run_envelope("dxf_export_slice", || {
             if !params.bbox.iter().all(|v| v.is_finite())
                 || params.bbox[0] > params.bbox[2]
@@ -508,7 +537,14 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Mutating tool: convert DXF 3DFACE entities into a welded `.2dm` or `.obj` surface mesh under `<workspace>/outputs/<output_name>`. Welds coincident XY vertices, guards against vertical Z steps, orients faces CCW, removes duplicates/degenerates, and maps layers to materials."
+        description = "Mutating tool: convert DXF 3DFACE entities into a welded `.2dm` or `.obj` surface mesh under `<workspace>/outputs/<output_name>`. Welds coincident XY vertices, guards against vertical Z steps, orients faces CCW, removes duplicates/degenerates, and maps layers to materials.",
+        annotations(
+            title = "DXF to mesh",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     pub fn dxf_to_mesh(&self, Parameters(params): Parameters<DxfToMeshParams>) -> String {
         run_envelope("dxf_to_mesh", || {
@@ -550,7 +586,14 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Mutating tool: compute a 3D centreline between two DXF polylines (on `layer_a` and `layer_b`) using normalized arc-length or perpendicular pairing, interpolating XYZ and reporting width stats & pairing crossings. Writes a NEW 3D DXF under `<workspace>/outputs/<output_name>`."
+        description = "Mutating tool: compute a 3D centreline between two DXF polylines (on `layer_a` and `layer_b`) using normalized arc-length or perpendicular pairing, interpolating XYZ and reporting width stats & pairing crossings. Writes a NEW 3D DXF under `<workspace>/outputs/<output_name>`.",
+        annotations(
+            title = "DXF centerline",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     pub fn dxf_centerline(&self, Parameters(params): Parameters<DxfCenterlineParams>) -> String {
         run_envelope("dxf_centerline", || {
@@ -596,12 +639,16 @@ impl DxfServer {
     }
 
     #[tool(
-        description = "Mutating tool: elevate 2D DXF lines (`line_layer`) to 3D polylines using elevation text labels or 3D points (`label_layer`). Snaps labels to nearest vertices within `max_distance` and linearly interpolates Z along arc length. Writes a NEW 3D DXF under `<workspace>/outputs/<output_name>`."
+        description = "Mutating tool: elevate 2D DXF lines (`line_layer`) to 3D polylines using elevation text labels or 3D points (`label_layer`). Snaps labels to nearest vertices within `max_distance` and linearly interpolates Z along arc length. Writes a NEW 3D DXF under `<workspace>/outputs/<output_name>`.",
+        annotations(
+            title = "DXF labels to 3d",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    pub fn dxf_labels_to_3d(
-        &self,
-        Parameters(params): Parameters<DxfLabelsTo3dParams>,
-    ) -> String {
+    pub fn dxf_labels_to_3d(&self, Parameters(params): Parameters<DxfLabelsTo3dParams>) -> String {
         run_envelope("dxf_labels_to_3d", || {
             let max_dist = params.max_distance.unwrap_or(2.0);
             if !max_dist.is_finite() || max_dist <= 0.0 {
@@ -644,6 +691,11 @@ impl DxfServer {
         })
     }
 }
+
+#[rmcp::tool_handler(
+    instructions = "Read-only DXF orientation and query tools plus output-isolated mutators. Start with dxf_summary, then dxf_query_layers, dxf_query_entities or dxf_extract_text. Mutators (dxf_export_slice, dxf_to_mesh, dxf_centerline, dxf_labels_to_3d) write NEW files under <workspace>/outputs and never modify inputs. Every tool returns a JSON envelope {ok, data, meta} on success or {ok:false, error:{code, message, retryable}} on failure; paths are relative to the workspace root and sandboxed."
+)]
+impl rmcp::handler::server::ServerHandler for DxfServer {}
 
 #[cfg(test)]
 mod tests {
@@ -731,11 +783,10 @@ mod tests {
         assert!(dir.join("outputs/road_only.dxf").is_file());
 
         // Verify exported DXF parses cleanly back through dxf_summary
-        let resumm: Value =
-            serde_json::from_str(&srv.dxf_summary(Parameters(DxfSummaryParams {
-                dxf_path: "outputs/road_only.dxf".to_string(),
-            })))
-            .unwrap();
+        let resumm: Value = serde_json::from_str(&srv.dxf_summary(Parameters(DxfSummaryParams {
+            dxf_path: "outputs/road_only.dxf".to_string(),
+        })))
+        .unwrap();
         assert_eq!(resumm["ok"], true);
         assert_eq!(resumm["data"]["total_entities"], 1);
 

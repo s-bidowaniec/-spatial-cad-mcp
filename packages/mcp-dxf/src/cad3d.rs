@@ -315,9 +315,7 @@ fn extract_polyline(
                     cursor += 1;
                 }
                 let is_face = (vf & 128) != 0 && (vf & 64) == 0;
-                if !is_face
-                    && let (Some(x), Some(y)) = (vx, vy)
-                {
+                if !is_face && let (Some(x), Some(y)) = (vx, vy) {
                     pts.push([x, y, vz]);
                 }
                 continue;
@@ -364,7 +362,9 @@ pub fn write_dxf_polylines_3d(
     }
     out.push_str("0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n");
     for layer in &layers {
-        out.push_str(&format!("0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+        out.push_str(&format!(
+            "0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"
+        ));
     }
     out.push_str("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
 
@@ -387,7 +387,10 @@ pub fn write_dxf_polylines_3d(
     out.push_str("0\nENDSEC\n0\nEOF\n");
 
     std::fs::write(output_path, out).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed writing 3D DXF output: {e}"))
+        ToolError::new(
+            "internal_error",
+            format!("Failed writing 3D DXF output: {e}"),
+        )
     })
 }
 
@@ -452,7 +455,9 @@ pub fn dxf_to_mesh(
     let mut mat_map: BTreeMap<String, i64> = BTreeMap::new();
     let mut used_ids: BTreeSet<i64> = BTreeSet::new();
     for lname in &layer_names {
-        if let Some(rest) = lname.strip_prefix("MAT_").or_else(|| lname.strip_prefix("mat_"))
+        if let Some(rest) = lname
+            .strip_prefix("MAT_")
+            .or_else(|| lname.strip_prefix("mat_"))
             && let Some(num_tok) = rest.split('_').next()
             && let Ok(id) = num_tok.parse::<i64>()
             && id > 0
@@ -684,7 +689,10 @@ pub struct CenterlineReport {
 fn clean_polyline(raw: &[[f64; 3]]) -> Vec<[f64; 3]> {
     let mut out: Vec<[f64; 3]> = Vec::new();
     for &p in raw {
-        if out.last().is_none_or(|prev| (p[0] - prev[0]).hypot(p[1] - prev[1]) > 1e-9) {
+        if out
+            .last()
+            .is_none_or(|prev| (p[0] - prev[0]).hypot(p[1] - prev[1]) > 1e-9)
+        {
             out.push(p);
         }
     }
@@ -1195,7 +1203,11 @@ pub fn dxf_labels_to_3d(
                 let a = idxs[pos - 1];
                 let b = idxs[pos];
                 let span = s[b] - s[a];
-                let t = if span > 1e-12 { (s[vi] - s[a]) / span } else { 0.0 };
+                let t = if span > 1e-12 {
+                    (s[vi] - s[a]) / span
+                } else {
+                    0.0
+                };
                 v_interp += 1;
                 anc_z[&a] + t * (anc_z[&b] - anc_z[&a])
             };

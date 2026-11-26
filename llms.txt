@@ -19,7 +19,12 @@
 - [docs/writing-docs.md](docs/writing-docs.md) - how to write and link docs in this repo
 - [docs/github-governance.md](docs/github-governance.md) - issue/PR forms, label taxonomy, merge rules
 - [docs/adr/README.md](docs/adr/README.md) - architecture decision records
+- [docs/knowledge/README.md](docs/knowledge/README.md) - agent-written knowledge base (tool usage, lessons learned)
 - [planning/README.md](planning/README.md) - repository-first coordination
+
+## Contracts
+
+- [schemas/envelope.v1.schema.json](schemas/envelope.v1.schema.json) - the JSON Schema every tool result (Python and Rust) validates against
 
 ## Client-facing
 

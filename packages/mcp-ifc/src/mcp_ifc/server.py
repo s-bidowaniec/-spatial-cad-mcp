@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from mcp_cad_core import WORKSPACE_ROOT_ENV
 from mcp_cad_core.log import configure_logging, get_logger
@@ -42,7 +43,11 @@ mcp = FastMCP(
 )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    )
+)
 def ifc_summary(ifc_path: str) -> dict:
     """Summarize an IFC file: schema, length unit, totals, element counts by class.
 
@@ -56,7 +61,11 @@ def ifc_summary(ifc_path: str) -> dict:
     return t.ifc_summary(ifc_path)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    )
+)
 def ifc_query_elements(
     ifc_path: str,
     ifc_class: str = "IfcProduct",
@@ -81,7 +90,11 @@ def ifc_query_elements(
     return t.ifc_query_elements(ifc_path, ifc_class, name_pattern, limit, offset)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    )
+)
 def ifc_get_psets(ifc_path: str, global_id: str) -> dict:
     """Return all property sets and properties of one IFC element, by GlobalId.
 
@@ -95,7 +108,11 @@ def ifc_get_psets(ifc_path: str, global_id: str) -> dict:
     return t.ifc_get_psets(ifc_path, global_id)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+    )
+)
 def ifc_validate_required_props(
     ifc_path: str,
     ifc_class: str,

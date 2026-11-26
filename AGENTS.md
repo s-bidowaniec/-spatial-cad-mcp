@@ -74,6 +74,8 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
    (see [docs/tool-design.md](docs/tool-design.md)).
 7. Do not guess file contents: IFC/DXF/GIS/HDM files can be hundreds of MB - always confirm
    through the summary/query tools, never by reading the raw file into the conversation.
+8. When you learn a reusable tool-usage pattern or hit a non-obvious error, record it in
+   [docs/knowledge/](docs/knowledge/README.md) (synthetic data only) - see [docs/knowledge/tool-usage.md](docs/knowledge/tool-usage.md).
 
 ## Tool index
 

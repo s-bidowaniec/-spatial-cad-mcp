@@ -16,9 +16,10 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+          enable-cache: true
 
-      - name: Sync workspace
-        run: uv sync --all-packages
+      - name: Sync workspace (locked)
+        run: uv sync --locked --all-packages
 
       - name: Lint (ruff)
         run: |
@@ -28,13 +29,15 @@ jobs:
       - name: Test (pytest)
         run: uv run pytest
 
-      - name: Repo checks (docs links, data policy)
+      - name: Repo checks (docs links, tool definitions, data policy)
         run: |
+          bash -n tools/check_all.sh
           uv run python tools/check_docs.py
           uv run python tools/check_no_data.py
+          uv run python tools/check_tools.py
 
   rust:
-    name: Rust (cargo check + test)
+    name: Rust (fmt + check + clippy + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,11 +50,14 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Format check
+        run: cargo fmt --all -- --check
+
       - name: Check
         run: cargo check --workspace
 
-      - name: Lint (clippy)
-        run: cargo clippy --workspace --all-targets
+      - name: Lint (clippy, warnings denied)
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
         run: cargo test --workspace

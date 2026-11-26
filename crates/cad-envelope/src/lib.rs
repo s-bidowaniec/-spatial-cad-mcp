@@ -51,7 +51,10 @@ impl ToolError {
 
 /// Resolve an existing file inside the workspace sandbox, returning
 /// `file_not_found` or `invalid_input` when appropriate.
-pub fn resolve_input_file(sandbox: &WorkspaceSandbox, raw_path: &str) -> Result<PathBuf, ToolError> {
+pub fn resolve_input_file(
+    sandbox: &WorkspaceSandbox,
+    raw_path: &str,
+) -> Result<PathBuf, ToolError> {
     if raw_path.trim().is_empty() {
         return Err(ToolError::new(
             "invalid_input",
@@ -228,8 +231,14 @@ mod tests {
 
     #[test]
     fn paginate_rejects_negative_offset_and_zero_limit() {
-        assert_eq!(paginate::<i32>(&[], Some(0), Some(0)).unwrap_err().code, "invalid_input");
-        assert_eq!(paginate::<i32>(&[], Some(10), Some(-1)).unwrap_err().code, "invalid_input");
+        assert_eq!(
+            paginate::<i32>(&[], Some(0), Some(0)).unwrap_err().code,
+            "invalid_input"
+        );
+        assert_eq!(
+            paginate::<i32>(&[], Some(10), Some(-1)).unwrap_err().code,
+            "invalid_input"
+        );
     }
 
     #[test]

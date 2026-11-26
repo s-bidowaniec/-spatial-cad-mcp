@@ -137,10 +137,17 @@ struct HdmTimeseriesData {
     points: Vec<SeriesPoint>,
 }
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl HdmServer {
     #[tool(
-        description = "Read-only orientation summary of an open-standard hydrodynamic model (.slf/.res TELEMAC Selafin, .inp EPA SWMM, .2dm SMS mesh): node/element counts, spatial extent, time window, and available variables or time series. Call this first before querying time series."
+        description = "Read-only orientation summary of an open-standard hydrodynamic model (.slf/.res TELEMAC Selafin, .inp EPA SWMM, .2dm SMS mesh): node/element counts, spatial extent, time window, and available variables or time series. Call this first before querying time series.",
+        annotations(
+            title = "HDM summary",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn hdm_summary(
         &self,
@@ -154,7 +161,14 @@ impl HdmServer {
     }
 
     #[tool(
-        description = "Read-only paginated time-series query for a hydrodynamic model: extract a variable at a mesh node (`node_index` or nearest `xy`) from TELEMAC Selafin (.slf/.res), or a named `[TIMESERIES]` table from EPA SWMM (.inp), with min/max/mean summary stats. Hard page cap: 200."
+        description = "Read-only paginated time-series query for a hydrodynamic model: extract a variable at a mesh node (`node_index` or nearest `xy`) from TELEMAC Selafin (.slf/.res), or a named `[TIMESERIES]` table from EPA SWMM (.inp), with min/max/mean summary stats. Hard page cap: 200.",
+        annotations(
+            title = "HDM query timeseries",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn hdm_query_timeseries(
         &self,
@@ -162,12 +176,8 @@ impl HdmServer {
     ) -> String {
         run_envelope("hdm_query_timeseries", || {
             let resolved = resolve_input_file(&self.sandbox, &params.hdm_path)?;
-            let extracted = query_timeseries(
-                &resolved,
-                &params.series_name,
-                params.node_index,
-                params.xy,
-            )?;
+            let extracted =
+                query_timeseries(&resolved, &params.series_name, params.node_index, params.xy)?;
             let page = paginate(&extracted.points, params.limit, params.offset)?;
             let mut meta = Map::new();
             meta.insert("pagination".to_string(), page.meta_value());
@@ -188,7 +198,14 @@ impl HdmServer {
     }
 
     #[tool(
-        description = "Read-only profile extractor: interpolates a TELEMAC Selafin (.slf/.res) variable along a 2D section line (start -> end, 2..=200 samples) at a time step, or returns EPA SWMM (.inp) conduit longitudinal profiles with invert elevations and slopes."
+        description = "Read-only profile extractor: interpolates a TELEMAC Selafin (.slf/.res) variable along a 2D section line (start -> end, 2..=200 samples) at a time step, or returns EPA SWMM (.inp) conduit longitudinal profiles with invert elevations and slopes.",
+        annotations(
+            title = "HDM query profiles",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn hdm_query_profiles(
         &self,
@@ -222,12 +239,16 @@ impl HdmServer {
     }
 
     #[tool(
-        description = "Mutating tool: export a TELEMAC Selafin node/XY time series or EPA SWMM `[TIMESERIES]` to a NEW CSV file under `<workspace>/outputs/<output_name>`. Never modifies inputs and refuses to overwrite existing outputs."
+        description = "Mutating tool: export a TELEMAC Selafin node/XY time series or EPA SWMM `[TIMESERIES]` to a NEW CSV file under `<workspace>/outputs/<output_name>`. Never modifies inputs and refuses to overwrite existing outputs.",
+        annotations(
+            title = "HDM export slice",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    pub fn hdm_export_slice(
-        &self,
-        Parameters(params): Parameters<HdmExportSliceParams>,
-    ) -> String {
+    pub fn hdm_export_slice(&self, Parameters(params): Parameters<HdmExportSliceParams>) -> String {
         run_envelope("hdm_export_slice", || {
             let resolved_in = resolve_input_file(&self.sandbox, &params.hdm_path)?;
             let resolved_out = self
@@ -255,6 +276,11 @@ impl HdmServer {
         })
     }
 }
+
+#[rmcp::tool_handler(
+    instructions = "Read-only HDM model inspection tools plus an output-isolated CSV export. Start with hdm_summary, then hdm_query_timeseries or hdm_query_profiles. The mutator hdm_export_slice writes a NEW CSV under <workspace>/outputs and never modifies inputs. Every tool returns a JSON envelope {ok, data, meta} or {ok:false, error:{code, message, retryable}}; paths are relative to the workspace root and sandboxed."
+)]
+impl rmcp::handler::server::ServerHandler for HdmServer {}
 
 #[cfg(test)]
 mod tests {
@@ -292,17 +318,16 @@ mod tests {
         assert_eq!(ts["ok"], true);
         assert_eq!(ts["data"]["stats"]["count"], 2);
 
-        let prof: Value = serde_json::from_str(&srv.hdm_query_profiles(Parameters(
-            HdmQueryProfilesParams {
+        let prof: Value =
+            serde_json::from_str(&srv.hdm_query_profiles(Parameters(HdmQueryProfilesParams {
                 hdm_path: "net.inp".to_string(),
                 variable: None,
                 time_step: None,
                 start: None,
                 end: None,
                 samples: None,
-            },
-        )))
-        .unwrap();
+            })))
+            .unwrap();
         assert_eq!(prof["ok"], true);
         assert_eq!(prof["data"]["kind"], "swmm_conduits");
         assert_eq!(prof["data"]["conduits"][0]["slope"], 0.01);
