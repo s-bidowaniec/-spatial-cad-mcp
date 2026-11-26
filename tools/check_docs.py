@@ -22,9 +22,7 @@ DEFAULT_AGENTS_LIMIT = 120
 INDEX_REL = Path("docs/index.md")
 AGENTS_REL = Path("AGENTS.md")
 
-_SKIP_DIRS = frozenset(
-    {".git", ".venv", ".pytest_cache", "__pycache__", "node_modules"}
-)
+_SKIP_DIRS = frozenset({".git", ".venv", ".pytest_cache", "__pycache__", "node_modules"})
 _FILE_SUFFIXES = frozenset(
     {
         ".cfg",
@@ -63,16 +61,12 @@ _PARAGRAPH_BREAK = re.compile(
 _CODE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.S)
 _ESCAPE = re.compile(r"\\([" + re.escape(string.punctuation) + r"])")
 _ANGLE_DESTINATION = re.compile(r"<((?:\\[^\n]|[^<>\n])*)>")
-_DESTINATION_START = re.compile(
-    r"[^\s()<>\\]+|\\[" + re.escape(string.punctuation) + r"]|[()\\]"
-)
+_DESTINATION_START = re.compile(r"[^\s()<>\\]+|\\[" + re.escape(string.punctuation) + r"]|[()\\]")
 _TITLE = re.compile(r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))""")
 _LABEL_TEXT = r"(?:\\[^\n]|[^\[\]\\]|\[(?:\\[^\n]|[^\[\]\\])*\])*"
 _LABEL = re.compile(r"\[(" + _LABEL_TEXT + r")\]")
 _REFERENCE = re.compile(r"^ {0,3}\[([^\[\]\n]+)\]:[ \t]*(?:\n[ \t]*)?", re.M)
-_INLINE_HTML = re.compile(
-    r"</?[A-Za-z][A-Za-z0-9-]*(?:\s+(?:\"[^\"]*\"|'[^']*'|[^'\"<>])*)?\s*/?>"
-)
+_INLINE_HTML = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s+(?:\"[^\"]*\"|'[^']*'|[^'\"<>])*)?\s*/?>")
 _EMPHASIS = re.compile(
     r"(?<!\w)(__|_)(?!\s)(.+?)(?<!\s)\1(?!\w)|"
     r"(?<!\*)(\*{1,3})(?![\s*])(.+?)(?<!\s)\3(?!\*)"
@@ -202,13 +196,9 @@ def _render_heading(heading: str, references: set[str] | None) -> str:
         offset = end
     parts.append(heading[offset:])
     heading = _INLINE_HTML.sub("", "".join(parts))
-    while (
-        plain := _EMPHASIS.sub(lambda match: match[2] or match[4], heading)
-    ) != heading:
+    while (plain := _EMPHASIS.sub(lambda match: match[2] or match[4], heading)) != heading:
         heading = plain
-    return re.sub(
-        r"\0(\d+)\0", lambda match: literals[int(match[1])], unescape(heading)
-    )
+    return re.sub(r"\0(\d+)\0", lambda match: literals[int(match[1])], unescape(heading))
 
 
 def github_slug(heading: str, *, references: set[str] | None = None) -> str:
@@ -230,11 +220,7 @@ def heading_anchors(text: str) -> set[str]:
         elif paragraph and _SETEXT.fullmatch(line):
             heading = " ".join(paragraph)
         else:
-            if (
-                not line.strip()
-                or line.startswith(("    ", "\t"))
-                or _PARAGRAPH_BREAK.match(line)
-            ):
+            if not line.strip() or line.startswith(("    ", "\t")) or _PARAGRAPH_BREAK.match(line):
                 paragraph.clear()
             else:
                 paragraph.append(line.strip())
@@ -374,9 +360,7 @@ def check_tree(
                 continue
             texts[path] = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as error:
-            problems.append(
-                f"{path.relative_to(root).as_posix()}: cannot read Markdown ({error})"
-            )
+            problems.append(f"{path.relative_to(root).as_posix()}: cannot read Markdown ({error})")
     anchors = {path: heading_anchors(body) for path, body in texts.items()}
 
     for path, body in texts.items():
@@ -390,9 +374,7 @@ def check_tree(
             else:
                 target = path
             if failure := validate_target(target):
-                problems.append(
-                    f"{relative}:{line}: broken link -> {link_path!r} ({failure})"
-                )
+                problems.append(f"{relative}:{line}: broken link -> {link_path!r} ({failure})")
             elif anchor and target in anchors and anchor not in anchors[target]:
                 problems.append(
                     f"{relative}:{line}: broken anchor -> {link_path}#{anchor} (missing)"
@@ -404,9 +386,7 @@ def check_tree(
     else:
         for cited in cited_paths(index_text):
             if failure := validate_target(Path(os.path.normpath(root / cited))):
-                problems.append(
-                    f"{INDEX_REL.as_posix()}: missing cited path `{cited}` ({failure})"
-                )
+                problems.append(f"{INDEX_REL.as_posix()}: missing cited path `{cited}` ({failure})")
 
     agents_text = texts.get(root / AGENTS_REL)
     if agents_text is None:
@@ -438,9 +418,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="walk the file tree instead of asking Git for tracked files",
     )
     args = parser.parse_args(argv)
-    problems = check_tree(
-        args.root, agents_limit=args.agents_limit, use_git=not args.no_git
-    )
+    problems = check_tree(args.root, agents_limit=args.agents_limit, use_git=not args.no_git)
     for problem in problems:
         print(problem)
     if problems:

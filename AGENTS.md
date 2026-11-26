@@ -111,4 +111,4 @@ commit. Human commits carry no trailer. Test and docs commits follow the same ru
   reviewer attention in the PR description.
 - Repo hygiene is enforced in CI: `python tools/check_docs.py` (links, anchors, cited paths,
   AGENTS.md budget) and `python tools/check_no_data.py` (no real model data in Git) - see
-  [docs/engineering.md](docs/engineering.md).
+  [docs/engineering.md](docs/engineering.md); write docs per [docs/writing-docs.md](docs/writing-docs.md).

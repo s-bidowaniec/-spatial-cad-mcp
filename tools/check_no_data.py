@@ -82,9 +82,7 @@ def _oversized_index_files() -> set[bytes]:
 
 
 def main() -> int:
-    candidates = _git_output(
-        "ls-files", "-z", "--cached", "--others", "--exclude-standard"
-    )
+    candidates = _git_output("ls-files", "-z", "--cached", "--others", "--exclude-standard")
     oversized_index = _oversized_index_files()
     violations = []
     for name in sorted(set(candidates.split(b"\0")) - {b""}):
@@ -93,9 +91,7 @@ def main() -> int:
         forbidden_path = (
             relative_path.suffix.casefold() in DATA_SUFFIXES
             or relative_path.name.casefold().endswith(DATABASE_SIDECARS)
-            or any(
-                parent.suffix.casefold() == ".gdb" for parent in relative_path.parents
-            )
+            or any(parent.suffix.casefold() == ".gdb" for parent in relative_path.parents)
         )
         if (
             forbidden_path

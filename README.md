@@ -54,8 +54,10 @@ spatial-cad-mcp/
 - [docs/tool-design.md](docs/tool-design.md) - tool surfaces, envelope, pagination, checklists
 - [docs/security.md](docs/security.md) - threat model, workspace sandbox, write rules
 - [docs/github-governance.md](docs/github-governance.md) + [ADRs](docs/adr/README.md) - issue/PR labels and decision records
+- [docs/writing-docs.md](docs/writing-docs.md) - how to write and link docs (CI-checked)
 - [planning/README.md](planning/README.md) - repository-first coordination
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to pick up work and open a PR
+- `llms.txt` - machine-readable index for AI agents
 
 ## MCP tools (mcp-ifc, MVP)
 

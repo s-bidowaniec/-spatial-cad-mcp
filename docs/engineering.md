@@ -23,7 +23,7 @@ Execution and handoff follow [Repository First Coordination](../planning/README.
 ## Data policy
 
 - Code, tests and synthetic fixtures only. Tests build inputs in `tmp_path`. No real model files, client names or local absolute paths in Git - enforced by `python tools/check_no_data.py` in CI.
-- Keep the docs honest: relative links, anchors and the cited paths in `docs/index.md` are verified by `python tools/check_docs.py`; keep `AGENTS.md` within its line budget.
+- Keep the docs honest: write them per [writing-docs.md](writing-docs.md); relative links, anchors and the cited paths in `docs/index.md` are verified by `python tools/check_docs.py`; keep `AGENTS.md` within its line budget.
 
 ## Performance
 

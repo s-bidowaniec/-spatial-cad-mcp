@@ -1,0 +1,31 @@
+# spatial-cad-mcp
+
+> Modular, deterministic MCP servers for CAD / BIM / GIS / HDM / mesh workflows, built for AI-to-AI use. Pre-alpha monorepo: `mcp-ifc` (Python, ifcopenshell) and `mcp-dxf`, `mcp-gis`, `mcp-hdm`, `mcp-mesh` (pure Rust, rmcp), plus the `cadctl` CLI. One JSON envelope contract, one workspace sandbox (`MCP_CAD_WORKSPACE_ROOT`).
+
+## Agent entry points
+
+- [AGENTS.md](AGENTS.md) - the agent contract: setup, data policy, envelope, rules, tool index, commit conventions
+- [docs/index.md](docs/index.md) - documentation map: area -> guide -> package -> tests
+- [docs/onboarding.md](docs/onboarding.md) - canonical onboarding and the check commands
+- [CONTRIBUTING.md](CONTRIBUTING.md) - picking up work and opening a PR
+
+## Docs
+
+- [README.md](README.md) - project overview, layout, install and run
+- [docs/architecture.md](docs/architecture.md) - language split, transport, request flow, roadmap
+- [docs/tool-design.md](docs/tool-design.md) - tool surfaces, envelope, pagination, per-tool checklists
+- [docs/security.md](docs/security.md) - threat model and the workspace sandbox
+- [docs/engineering.md](docs/engineering.md) - engineering standards
+- [docs/writing-docs.md](docs/writing-docs.md) - how to write and link docs in this repo
+- [docs/github-governance.md](docs/github-governance.md) - issue/PR forms, label taxonomy, merge rules
+- [docs/adr/README.md](docs/adr/README.md) - architecture decision records
+- [planning/README.md](planning/README.md) - repository-first coordination
+
+## Client-facing
+
+- [examples/mcp.json](examples/mcp.json) - MCP host configuration
+- [examples/prompts/agent-prompts.md](examples/prompts/agent-prompts.md) - sample agent prompts
+
+## Optional
+
+- [LICENSE](LICENSE) - GPL-3.0-or-later

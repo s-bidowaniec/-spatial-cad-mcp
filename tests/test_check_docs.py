@@ -93,10 +93,7 @@ def test_duplicate_headings_get_github_suffix_anchors(tmp_path: Path) -> None:
 
 
 def test_missing_cited_path_in_index_is_reported(tmp_path: Path) -> None:
-    index = (
-        INDEX
-        + "\nSee `src/core/nope.py` and `tests/test_ghost.py::test_x`.\n"
-    )
+    index = INDEX + "\nSee `src/core/nope.py` and `tests/test_ghost.py::test_x`.\n"
     found = problems(make_tree(tmp_path, index=index))
     assert len(found) == 2
     assert any("nope.py" in item for item in found)
@@ -199,8 +196,7 @@ def test_link_after_fence_keeps_diagnostic_line_number(tmp_path: Path) -> None:
 
 def test_inline_code_hides_links_and_preserves_link_label() -> None:
     document = (
-        "`[sample](skip.md)` and ``[another\nexample](skip-too.md) ` ``\n"
-        "[`actual`](target.md)\n"
+        "`[sample](skip.md)` and ``[another\nexample](skip-too.md) ` ``\n[`actual`](target.md)\n"
     )
     assert list(check_docs.iter_links(document)) == [(3, "target.md", "")]
 
@@ -219,9 +215,7 @@ def test_inline_code_hides_links_and_preserves_link_label() -> None:
         "[unused]: missing.md",
     ],
 )
-def test_markdown_link_forms_check_broken_destinations(
-    tmp_path: Path, link: str
-) -> None:
+def test_markdown_link_forms_check_broken_destinations(tmp_path: Path, link: str) -> None:
     found = problems(make_tree(tmp_path, index=INDEX + "\n" + link + "\n"))
     assert len(found) == 1
     assert (
@@ -262,8 +256,7 @@ def test_link_may_not_leave_root(tmp_path: Path) -> None:
 
 def test_cited_paths_distinguish_assets_and_identifiers(tmp_path: Path) -> None:
     index = (
-        INDEX
-        + "\n`missing.svg` `C01/C02` `https://example.org/file.md` `docs/index.md#index`\n"
+        INDEX + "\n`missing.svg` `C01/C02` `https://example.org/file.md` `docs/index.md#index`\n"
     )
     assert problems(make_tree(tmp_path, index=index)) == [
         "docs/index.md: missing cited path `missing.svg` (missing)"
@@ -300,9 +293,7 @@ def test_default_git_mode_checks_tracked_sources_and_targets(tmp_path: Path) -> 
     for name in ("ignored.md", "untracked.md"):
         (root / name).write_text("[ignore](missing.md)\n", encoding="utf-8")
     assert check_docs.check_tree(root, use_git=True) == []
-    readme.write_text(
-        "[ignored](ignored.md)\n[local](untracked.md)\n", encoding="utf-8"
-    )
+    readme.write_text("[ignored](ignored.md)\n[local](untracked.md)\n", encoding="utf-8")
     index = root / "docs" / "index.md"
     index.write_text(INDEX + "\nCite `untracked.md`.\n", encoding="utf-8")
     found = check_docs.check_tree(root, use_git=True)
@@ -325,15 +316,10 @@ def test_git_discovery_rejects_empty_markdown_result(tmp_path: Path) -> None:
     assert any("no tracked Markdown" in item for item in check_docs.check_tree(root))
 
 
-def test_git_discovery_reports_missing_git(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_git_discovery_reports_missing_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = make_tree(tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path / "bin"))
-    assert any(
-        "git discovery failed" in problem.lower()
-        for problem in check_docs.check_tree(root)
-    )
+    assert any("git discovery failed" in problem.lower() for problem in check_docs.check_tree(root))
 
 
 def test_git_discovery_reports_deleted_and_invalid_utf8_documents(

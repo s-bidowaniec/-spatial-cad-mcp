@@ -22,9 +22,11 @@ Route each task to its guide, package, tests and decision records. Read this whe
 
 - [ADR index](adr/README.md) - accepted decisions and proposals awaiting review.
 - [GitHub governance](github-governance.md) - issue/PR forms, label taxonomy, merge rules.
+- [Writing docs](writing-docs.md) - doc style and link rules, enforced by `tools/check_docs.py` in CI.
 - [Onboarding: run the checks](onboarding.md#run-the-checks) - the commands CI runs on every PR.
 
 ## Client-facing
 
 - `examples/mcp.json` - MCP host configuration; `examples/prompts/agent-prompts.md` - sample agent prompts.
+- `llms.txt` - machine-readable index for agents arriving at this repo from outside.
 - [AGENTS.md](../AGENTS.md) - the agent contract: setup, data policy, envelope, rules, tool index, commit conventions.
