@@ -18,7 +18,7 @@ tools. Tool names and envelopes may still evolve before the first tagged release
 
 - Python side: uv workspace (Python 3.11+).
   ```bash
-  uv sync --all-packages
+  uv sync --locked --all-packages
   uv run pytest; uv run ruff check . && uv run ruff format --check .
   ```
 - Rust side: cargo workspace (edition 2024, Rust 1.88+).

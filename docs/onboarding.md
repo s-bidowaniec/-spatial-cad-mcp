@@ -19,7 +19,7 @@ spatial-cad-mcp is a pre-alpha monorepo of deterministic MCP servers for CAD / B
 From the repository root, Python 3.11+ and Rust 1.88+:
 
 ```bash
-uv sync --all-packages
+uv sync --locked --all-packages
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 cargo fmt --all -- --check

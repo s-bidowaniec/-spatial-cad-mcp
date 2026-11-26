@@ -80,7 +80,7 @@ Every tool returns an envelope:
 ## Install (uv workspace, Python 3.11+)
 
 ```bash
-uv sync --all-packages            # install all Python workspace members
+uv sync --locked --all-packages   # install all Python workspace members (lockfile pinned)
 uv run pytest                     # sandbox + tool error handling suite
 uv run ruff check . && uv run ruff format --check .
 ```
