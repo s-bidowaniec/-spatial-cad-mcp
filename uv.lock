@@ -1141,6 +1141,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "jsonschema" },
     { name = "mcp-cad-core" },
     { name = "mcp-ifc" },
     { name = "pytest" },
@@ -1151,6 +1152,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "jsonschema", specifier = ">=4.25,<5" },
     { name = "mcp-cad-core", editable = "shared/mcp_cad_core" },
     { name = "mcp-ifc", editable = "packages/mcp-ifc" },
     { name = "pytest", specifier = ">=8.3" },

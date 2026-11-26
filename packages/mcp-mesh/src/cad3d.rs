@@ -45,7 +45,9 @@ fn write_dxf_polylines_3d(
     }
     out.push_str("0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n");
     for layer in &layers {
-        out.push_str(&format!("0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+        out.push_str(&format!(
+            "0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"
+        ));
     }
     out.push_str("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
 
@@ -67,9 +69,8 @@ fn write_dxf_polylines_3d(
     }
     out.push_str("0\nENDSEC\n0\nEOF\n");
 
-    std::fs::write(output_path, out).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed writing DXF output: {e}"))
-    })
+    std::fs::write(output_path, out)
+        .map_err(|e| ToolError::new("internal_error", format!("Failed writing DXF output: {e}")))
 }
 
 /// Chain undirected segments `(a, b)` into deterministic open paths and closed loops.
@@ -187,8 +188,8 @@ impl Plane3D {
             u[2] * v[0] - u[0] * v[2],
             u[0] * v[1] - u[1] * v[0],
         ];
-        let scale = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2])
-            .max(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        let scale =
+            (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).max(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         let nlen = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
         if scale <= 1e-18 || nlen <= 1e-9 * scale {
             return Err(ToolError::new(
@@ -245,7 +246,15 @@ pub fn cut_mesh_with_plane(
         .collect();
     let signs: Vec<i8> = dists
         .iter()
-        .map(|&d| if d > 0.0 { 1 } else if d < 0.0 { -1 } else { 0 })
+        .map(|&d| {
+            if d > 0.0 {
+                1
+            } else if d < 0.0 {
+                -1
+            } else {
+                0
+            }
+        })
         .collect();
 
     let tris = mesh_triangles(mesh);
@@ -380,8 +389,8 @@ fn build_tri25d(mesh: &Mesh, origin: [f64; 3]) -> Vec<Tri25D> {
                 mesh.vertices[t[2]][2] - origin[2],
             ],
         ];
-        let cross = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
-            - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
+        let cross =
+            (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]);
         if cross.abs() < 1e-12 {
             continue;
         }
@@ -436,7 +445,10 @@ fn clip_poly_edge(poly: &[[f64; 2]], a: [f64; 2], b: [f64; 2]) -> Vec<[f64; 2]> 
             let denom = sc - sn;
             if denom.abs() > 1e-18 {
                 let t = (sc / denom).clamp(0.0, 1.0);
-                out.push([cur[0] + t * (nxt[0] - cur[0]), cur[1] + t * (nxt[1] - cur[1])]);
+                out.push([
+                    cur[0] + t * (nxt[0] - cur[0]),
+                    cur[1] + t * (nxt[1] - cur[1]),
+                ]);
             }
         }
     }
@@ -788,7 +800,9 @@ pub fn export_mesh_to_dxf(
     }
     out.push_str("0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n");
     for layer in &layers {
-        out.push_str(&format!("0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+        out.push_str(&format!(
+            "0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"
+        ));
     }
     out.push_str("0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n");
 
@@ -819,7 +833,11 @@ pub fn export_mesh_to_dxf(
 
     for ch in &boundary_chains {
         let closed = ch.len() > 2 && ch.first() == ch.last();
-        let slice = if closed { &ch[..ch.len() - 1] } else { ch.as_slice() };
+        let slice = if closed {
+            &ch[..ch.len() - 1]
+        } else {
+            ch.as_slice()
+        };
         if slice.len() < 2 {
             continue;
         }
@@ -838,9 +856,8 @@ pub fn export_mesh_to_dxf(
     }
 
     out.push_str("0\nENDSEC\n0\nEOF\n");
-    std::fs::write(output_dxf, out).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed writing DXF output: {e}"))
-    })?;
+    std::fs::write(output_dxf, out)
+        .map_err(|e| ToolError::new("internal_error", format!("Failed writing DXF output: {e}")))?;
 
     Ok(MeshToDxfReport {
         face_count: written_faces,

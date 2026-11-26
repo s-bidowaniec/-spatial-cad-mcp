@@ -126,7 +126,10 @@ pub fn check_crs_sanity(epsg: Option<i32>, bbox: Option<BBox2D>) -> Vec<String> 
             ));
         }
         // Projected metric CRS with tiny degree-sized coordinates
-        if !matches!(code, 4326 | 4258 | 4269) && ax <= 180.0 && ay <= 90.0 && (ax > 0.0 || ay > 0.0)
+        if !matches!(code, 4326 | 4258 | 4269)
+            && ax <= 180.0
+            && ay <= 90.0
+            && (ax > 0.0 || ay > 0.0)
         {
             warnings.push(format!(
                 "Coordinates (mid=({:.4}, {:.4})) look geographic (degrees) or local, but declared CRS is projected EPSG:{code}.",
@@ -201,7 +204,10 @@ pub fn export_bbox_geojson(
         "features": kept_features,
     });
     let body = serde_json::to_string_pretty(&fc).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed to serialize GeoJSON: {e}"))
+        ToolError::new(
+            "internal_error",
+            format!("Failed to serialize GeoJSON: {e}"),
+        )
     })?;
     std::fs::write(output_path, body).map_err(|e| {
         ToolError::new(
@@ -309,13 +315,18 @@ fn load_gpkg_layers(conn: &Connection) -> Result<Vec<GpkgLayerMeta>, ToolError> 
                 declared_bbox,
             })
         })
-        .map_err(|e| ToolError::new("cannot_open_gis", format!("Failed reading gpkg_contents: {e}")))?;
+        .map_err(|e| {
+            ToolError::new(
+                "cannot_open_gis",
+                format!("Failed reading gpkg_contents: {e}"),
+            )
+        })?;
 
     let mut out = Vec::new();
     for item in rows {
-        out.push(item.map_err(|e| {
-            ToolError::new("cannot_open_gis", format!("Row read error: {e}"))
-        })?);
+        out.push(
+            item.map_err(|e| ToolError::new("cannot_open_gis", format!("Row read error: {e}")))?,
+        );
     }
     Ok(out)
 }
@@ -331,19 +342,16 @@ fn resolve_gpkg_layer<'a>(
         ));
     }
     match requested {
-        Some(name) => layers
-            .iter()
-            .find(|l| l.table_name == name)
-            .ok_or_else(|| {
-                let avail: Vec<&str> = layers.iter().map(|l| l.table_name.as_str()).collect();
-                ToolError::new(
-                    "invalid_input",
-                    format!(
-                        "Layer '{name}' not found in GeoPackage. Available layers: {}",
-                        avail.join(", ")
-                    ),
-                )
-            }),
+        Some(name) => layers.iter().find(|l| l.table_name == name).ok_or_else(|| {
+            let avail: Vec<&str> = layers.iter().map(|l| l.table_name.as_str()).collect();
+            ToolError::new(
+                "invalid_input",
+                format!(
+                    "Layer '{name}' not found in GeoPackage. Available layers: {}",
+                    avail.join(", ")
+                ),
+            )
+        }),
         None => Ok(&layers[0]),
     }
 }
@@ -413,11 +421,15 @@ fn schema_gpkg(path: &Path, layer: Option<&str>) -> Result<Vec<LayerSchema>, Too
 
         let mut col_stmt = conn
             .prepare(&format!("PRAGMA table_info({qtable})"))
-            .map_err(|e| ToolError::new("cannot_open_gis", format!("PRAGMA table_info failed: {e}")))?;
+            .map_err(|e| {
+                ToolError::new("cannot_open_gis", format!("PRAGMA table_info failed: {e}"))
+            })?;
 
         let cols: Vec<(String, String)> = col_stmt
             .query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
-            .map_err(|e| ToolError::new("cannot_open_gis", format!("table_info query failed: {e}")))?
+            .map_err(|e| {
+                ToolError::new("cannot_open_gis", format!("table_info query failed: {e}"))
+            })?
             .filter_map(Result::ok)
             .collect();
 
@@ -493,10 +505,7 @@ fn query_gpkg_features(
         .filter_map(Result::ok)
         .collect();
 
-    let prop_cols: Vec<String> = cols
-        .into_iter()
-        .filter(|c| c != &l.geom_col)
-        .collect();
+    let prop_cols: Vec<String> = cols.into_iter().filter(|c| c != &l.geom_col).collect();
 
     let select_list = std::iter::once("rowid".to_string())
         .chain(std::iter::once(quote_ident(&l.geom_col)))
@@ -505,7 +514,9 @@ fn query_gpkg_features(
         .join(", ");
 
     let mut stmt = conn
-        .prepare(&format!("SELECT {select_list} FROM {qtable} ORDER BY rowid ASC"))
+        .prepare(&format!(
+            "SELECT {select_list} FROM {qtable} ORDER BY rowid ASC"
+        ))
         .map_err(|e| ToolError::new("cannot_open_gis", format!("SELECT failed: {e}")))?;
 
     let needle_lc = attr_contains.map(str::to_ascii_lowercase);
@@ -585,7 +596,9 @@ fn collect_gpkg_geojson_features(
         .join(", ");
 
     let mut stmt = conn
-        .prepare(&format!("SELECT {select_list} FROM {qtable} ORDER BY rowid ASC"))
+        .prepare(&format!(
+            "SELECT {select_list} FROM {qtable} ORDER BY rowid ASC"
+        ))
         .map_err(|e| ToolError::new("cannot_open_gis", format!("SELECT failed: {e}")))?;
 
     let mut rows = stmt
@@ -630,11 +643,13 @@ fn collect_gpkg_geojson_features(
 
 fn load_geojson_features(path: &Path) -> Result<(String, Vec<Value>), ToolError> {
     let raw = std::fs::read_to_string(path).map_err(|e| {
-        ToolError::new("cannot_open_gis", format!("Failed to read GeoJSON file: {e}"))
+        ToolError::new(
+            "cannot_open_gis",
+            format!("Failed to read GeoJSON file: {e}"),
+        )
     })?;
-    let root: Value = serde_json::from_str(&raw).map_err(|e| {
-        ToolError::new("cannot_open_gis", format!("Invalid GeoJSON JSON: {e}"))
-    })?;
+    let root: Value = serde_json::from_str(&raw)
+        .map_err(|e| ToolError::new("cannot_open_gis", format!("Invalid GeoJSON JSON: {e}")))?;
     let default_name = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -662,12 +677,7 @@ fn load_geojson_features(path: &Path) -> Result<(String, Vec<Value>), ToolError>
             Ok((name, feats))
         }
         "Feature" => Ok((default_name, vec![root])),
-        "Point"
-        | "LineString"
-        | "Polygon"
-        | "MultiPoint"
-        | "MultiLineString"
-        | "MultiPolygon"
+        "Point" | "LineString" | "Polygon" | "MultiPoint" | "MultiLineString" | "MultiPolygon"
         | "GeometryCollection" => Ok((
             default_name,
             vec![json!({"type": "Feature", "geometry": root, "properties": {}})],
@@ -1110,7 +1120,12 @@ pub fn query_features_by_point(
     xy: [f64; 2],
     radius: f64,
 ) -> Result<(String, Vec<PointMatchSummary>), ToolError> {
-    let search_bbox = [xy[0] - radius, xy[1] - radius, xy[0] + radius, xy[1] + radius];
+    let search_bbox = [
+        xy[0] - radius,
+        xy[1] - radius,
+        xy[0] + radius,
+        xy[1] + radius,
+    ];
     let (layer_name, mut matches) = match detect_format(path)? {
         GisFormat::Geopackage => {
             let (lname, _, feats) = collect_gpkg_geojson_features(path, layer, search_bbox)?;
@@ -1160,7 +1175,12 @@ fn eval_geojson_point_match(
     }
     let (gtype, _, _, gbbox) = inspect_geojson_geom(geom);
     let gb = gbbox?;
-    let search_bbox = [xy[0] - radius, xy[1] - radius, xy[0] + radius, xy[1] + radius];
+    let search_bbox = [
+        xy[0] - radius,
+        xy[1] - radius,
+        xy[0] + radius,
+        xy[1] + radius,
+    ];
     if !bbox_intersects(gb, search_bbox) {
         return None;
     }
@@ -1242,8 +1262,8 @@ fn point_in_ring(p: [f64; 2], ring: &[[f64; 2]]) -> bool {
     for i in 0..ring.len() {
         let (xi, yi) = (ring[i][0], ring[i][1]);
         let (xj, yj) = (ring[j][0], ring[j][1]);
-        let intersects = ((yi > p[1]) != (yj > p[1]))
-            && (p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi);
+        let intersects =
+            ((yi > p[1]) != (yj > p[1])) && (p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi);
         if intersects {
             inside = !inside;
         }

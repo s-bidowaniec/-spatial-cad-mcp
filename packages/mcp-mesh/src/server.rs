@@ -287,10 +287,17 @@ struct MeshQualityData {
     faces: Vec<FaceQuality>,
 }
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl MeshServer {
     #[tool(
-        description = "Read-only orientation summary of a 2D/3D mesh (.2dm, .obj, .stl): vertex/triangle/quad counts, 3D bounding box, watertightness, boundary/non-manifold edges, Euler characteristic, valence, and aggregate element quality QA. Call this first before querying parts or individual failing faces."
+        description = "Read-only orientation summary of a 2D/3D mesh (.2dm, .obj, .stl): vertex/triangle/quad counts, 3D bounding box, watertightness, boundary/non-manifold edges, Euler characteristic, valence, and aggregate element quality QA. Call this first before querying parts or individual failing faces.",
+        annotations(
+            title = "mesh summary",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_summary(
         &self,
@@ -324,12 +331,16 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Read-only paginated listing of parts, groups, or material zones in a mesh (.2dm materials, .obj objects/groups, .stl solids) with per-part face counts and 3D bounding boxes. Hard page cap: 200."
+        description = "Read-only paginated listing of parts, groups, or material zones in a mesh (.2dm materials, .obj objects/groups, .stl solids) with per-part face counts and 3D bounding boxes. Hard page cap: 200.",
+        annotations(
+            title = "mesh query parts",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
-    pub fn mesh_query_parts(
-        &self,
-        Parameters(params): Parameters<MeshQueryPartsParams>,
-    ) -> String {
+    pub fn mesh_query_parts(&self, Parameters(params): Parameters<MeshQueryPartsParams>) -> String {
         run_envelope("mesh_query_parts", || {
             let resolved = resolve_input_file(&self.sandbox, &params.mesh_path)?;
             let mesh = load_mesh_file(&resolved)?;
@@ -349,7 +360,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Read-only paginated element quality QA query for a mesh (.2dm, .obj, .stl). Filter by min_angle_below, max_angle_above, max_neighbor_ratio_above, only_invalid, or 2D bbox [min_x, min_y, max_x, max_y]. Results are sorted deterministically worst-first (invalid faces first, then smallest min_angle_deg). Hard page cap: 200."
+        description = "Read-only paginated element quality QA query for a mesh (.2dm, .obj, .stl). Filter by min_angle_below, max_angle_above, max_neighbor_ratio_above, only_invalid, or 2D bbox [min_x, min_y, max_x, max_y]. Results are sorted deterministically worst-first (invalid faces first, then smallest min_angle_deg). Hard page cap: 200.",
+        annotations(
+            title = "mesh query quality",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_query_quality(
         &self,
@@ -429,7 +447,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Read-only barycentric 2D point-in-face elevation sampler for a surface mesh (.2dm, .obj, .stl). Accepts up to 200 [x, y] points per call and returns interpolated Z, face_id, and part (or z: null outside the surface)."
+        description = "Read-only barycentric 2D point-in-face elevation sampler for a surface mesh (.2dm, .obj, .stl). Accepts up to 200 [x, y] points per call and returns interpolated Z, face_id, and part (or z: null outside the surface).",
+        annotations(
+            title = "mesh sample elevation",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_sample_elevation(
         &self,
@@ -468,7 +493,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Read-only vertical cross-section sampler along a 2D line segment (start -> end) across a 3D surface mesh (.2dm, .obj, .stl). Returns station-elevation samples (2..=200) plus length and min/max/mean Z stats."
+        description = "Read-only vertical cross-section sampler along a 2D line segment (start -> end) across a 3D surface mesh (.2dm, .obj, .stl). Returns station-elevation samples (2..=200) plus length and min/max/mean Z stats.",
+        annotations(
+            title = "mesh section line",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_section_line(
         &self,
@@ -507,12 +539,16 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Mutating tool: clip faces intersecting a 2D XY bbox [min_x, min_y, max_x, max_y] into a NEW `.obj` or `.2dm` file under `<workspace>/outputs/<output_name>`. Never modifies the input mesh and refuses to overwrite existing outputs."
+        description = "Mutating tool: clip faces intersecting a 2D XY bbox [min_x, min_y, max_x, max_y] into a NEW `.obj` or `.2dm` file under `<workspace>/outputs/<output_name>`. Never modifies the input mesh and refuses to overwrite existing outputs.",
+        annotations(
+            title = "mesh slice bbox",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    pub fn mesh_slice_bbox(
-        &self,
-        Parameters(params): Parameters<MeshSliceBboxParams>,
-    ) -> String {
+    pub fn mesh_slice_bbox(&self, Parameters(params): Parameters<MeshSliceBboxParams>) -> String {
         run_envelope("mesh_slice_bbox", || {
             if !params.bbox.iter().all(|v| v.is_finite())
                 || params.bbox[0] > params.bbox[2]
@@ -549,7 +585,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Read-only structured diff between two surface meshes (before_path vs after_path): vertex/face count deltas, XY-matched elevation change stats (min/max/mean_abs dz), and added/removed/modified face IDs."
+        description = "Read-only structured diff between two surface meshes (before_path vs after_path): vertex/face count deltas, XY-matched elevation change stats (min/max/mean_abs dz), and added/removed/modified face IDs.",
+        annotations(
+            title = "mesh diff",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_diff(&self, Parameters(params): Parameters<MeshDiffParams>) -> String {
         run_envelope("mesh_diff", || {
@@ -577,7 +620,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Mutating tool: greedy diagonal edge-flipping on interior triangle pairs to reduce neighbor height-ratio spikes while preserving outer & material/part boundaries, convexity, and min angle. Writes a NEW `.2dm` or `.obj` under `<workspace>/outputs/<output_name>` with a before/after QA report."
+        description = "Mutating tool: greedy diagonal edge-flipping on interior triangle pairs to reduce neighbor height-ratio spikes while preserving outer & material/part boundaries, convexity, and min angle. Writes a NEW `.2dm` or `.obj` under `<workspace>/outputs/<output_name>` with a before/after QA report.",
+        annotations(
+            title = "mesh improve flips",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_improve_flips(
         &self,
@@ -634,12 +684,16 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Mutating tool: cut a 3D surface mesh (.2dm, .obj, .stl) with an arbitrary plane (horizontal `z_level`, `origin`+`normal`, or 3 `points`), chaining exact edge crossings into continuous 3D DXF polylines under `<workspace>/outputs/<output_name>`."
+        description = "Mutating tool: cut a 3D surface mesh (.2dm, .obj, .stl) with an arbitrary plane (horizontal `z_level`, `origin`+`normal`, or 3 `points`), chaining exact edge crossings into continuous 3D DXF polylines under `<workspace>/outputs/<output_name>`.",
+        annotations(
+            title = "mesh cut plane",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
-    pub fn mesh_cut_plane(
-        &self,
-        Parameters(params): Parameters<MeshCutPlaneParams>,
-    ) -> String {
+    pub fn mesh_cut_plane(&self, Parameters(params): Parameters<MeshCutPlaneParams>) -> String {
         run_envelope("mesh_cut_plane", || {
             let plane = if let Some(z) = params.z_level {
                 if !z.is_finite() {
@@ -688,7 +742,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Exact non-rasterized cut/fill volume & surface-intersection overlay between two 3D surfaces (A = existing, B = design). Computes exact fill/cut/net volumes, areas, dz range, and zero-lines (zB = zA). When `output_dxf_name` is set, writes 3D zero-line polylines to `<workspace>/outputs/<output_dxf_name>`."
+        description = "Mutating tool: exact non-rasterized cut/fill volume & surface-intersection overlay between two 3D surfaces (A = existing, B = design). Computes exact fill/cut/net volumes, areas, dz range, and zero-lines (zB = zA). When `output_dxf_name` is set, writes 3D zero-line polylines to `<workspace>/outputs/<output_dxf_name>`.",
+        annotations(
+            title = "mesh volumes intersect",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_volumes_intersect(
         &self,
@@ -714,8 +775,7 @@ impl MeshServer {
             };
             let ma = load_mesh_file(&pa)?;
             let mb = load_mesh_file(&pb)?;
-            let report =
-                overlay_volumes_and_intersect(&ma, &mb, tol, resolved_out.as_deref())?;
+            let report = overlay_volumes_and_intersect(&ma, &mb, tol, resolved_out.as_deref())?;
             Ok((
                 MeshVolumesIntersectData {
                     surface_a_path: params.surface_a_path,
@@ -729,7 +789,14 @@ impl MeshServer {
     }
 
     #[tool(
-        description = "Mutating tool: export a 3D surface mesh (.2dm, .obj, .stl) to an ASCII DXF file under `<workspace>/outputs/<output_name>` with 3DFACE entities grouped by part/material layer and optional 3D boundary polylines."
+        description = "Mutating tool: export a 3D surface mesh (.2dm, .obj, .stl) to an ASCII DXF file under `<workspace>/outputs/<output_name>` with 3DFACE entities grouped by part/material layer and optional 3D boundary polylines.",
+        annotations(
+            title = "mesh to DXF",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     pub fn mesh_to_dxf(&self, Parameters(params): Parameters<MeshToDxfParams>) -> String {
         run_envelope("mesh_to_dxf", || {
@@ -755,6 +822,11 @@ impl MeshServer {
         })
     }
 }
+
+#[rmcp::tool_handler(
+    instructions = "Read-only mesh inspection, QA and diff tools plus output-isolated editing mutators. Start with mesh_summary, then mesh_query_parts, mesh_query_quality, mesh_sample_elevation, mesh_section_line or mesh_diff. Mutators (mesh_slice_bbox, mesh_improve_flips, mesh_cut_plane, mesh_volumes_intersect, mesh_to_dxf) write NEW files under <workspace>/outputs and never modify inputs. Every tool returns a JSON envelope {ok, data, meta} or {ok:false, error:{code, message, retryable}}; paths are relative to the workspace root and sandboxed."
+)]
+impl rmcp::handler::server::ServerHandler for MeshServer {}
 
 #[cfg(test)]
 mod tests {
@@ -953,32 +1025,30 @@ E3T 2 1 3 4 1
 E3T 3 4 5 1 1
 ";
         fs::write(dir.join("flip_in.2dm"), flip_src).unwrap();
-        let fl: Value = serde_json::from_str(&srv.mesh_improve_flips(Parameters(
-            MeshImproveFlipsParams {
+        let fl: Value =
+            serde_json::from_str(&srv.mesh_improve_flips(Parameters(MeshImproveFlipsParams {
                 mesh_path: "flip_in.2dm".to_string(),
                 output_name: "flipped.2dm".to_string(),
                 height_ratio_limit: Some(1.3),
                 min_angle_deg: Some(15.0),
                 min_edge_length: None,
                 max_rounds: Some(5),
-            },
-        )))
-        .unwrap();
+            })))
+            .unwrap();
         assert_eq!(fl["ok"], true);
         assert!(dir.join("outputs/flipped.2dm").is_file());
 
         // Refuses overwrite
-        let dup: Value = serde_json::from_str(&srv.mesh_improve_flips(Parameters(
-            MeshImproveFlipsParams {
+        let dup: Value =
+            serde_json::from_str(&srv.mesh_improve_flips(Parameters(MeshImproveFlipsParams {
                 mesh_path: "flip_in.2dm".to_string(),
                 output_name: "flipped.2dm".to_string(),
                 height_ratio_limit: Some(1.3),
                 min_angle_deg: Some(15.0),
                 min_edge_length: None,
                 max_rounds: Some(5),
-            },
-        )))
-        .unwrap();
+            })))
+            .unwrap();
         assert_eq!(dup["ok"], false);
         assert_eq!(dup["error"]["code"], "output_exists");
 
@@ -1006,16 +1076,17 @@ E4Q 1 1 2 3 4 1
         fs::write(dir.join("surf_a.2dm"), surf_a).unwrap();
         fs::write(dir.join("surf_b.2dm"), surf_b).unwrap();
 
-        let cut: Value = serde_json::from_str(&srv.mesh_cut_plane(Parameters(MeshCutPlaneParams {
-            mesh_path: "surf_b.2dm".to_string(),
-            output_name: "contour_10.dxf".to_string(),
-            z_level: Some(10.0),
-            origin: None,
-            normal: None,
-            points: None,
-            layer_name: Some("CONTOUR_10".to_string()),
-        })))
-        .unwrap();
+        let cut: Value =
+            serde_json::from_str(&srv.mesh_cut_plane(Parameters(MeshCutPlaneParams {
+                mesh_path: "surf_b.2dm".to_string(),
+                output_name: "contour_10.dxf".to_string(),
+                z_level: Some(10.0),
+                origin: None,
+                normal: None,
+                points: None,
+                layer_name: Some("CONTOUR_10".to_string()),
+            })))
+            .unwrap();
         assert_eq!(cut["ok"], true);
         assert_eq!(cut["data"]["report"]["polyline_count"], 1);
         assert_eq!(cut["data"]["report"]["total_length_3d"], 10.0);
@@ -1041,13 +1112,12 @@ E4Q 1 1 2 3 4 1
         assert_eq!(vol["data"]["report"]["zero_line_length_2d"], 10.0);
         assert!(dir.join("outputs/zero_line.dxf").is_file());
 
-        let dxf_exp: Value =
-            serde_json::from_str(&srv.mesh_to_dxf(Parameters(MeshToDxfParams {
-                mesh_path: "surf_a.2dm".to_string(),
-                output_name: "surf_a.dxf".to_string(),
-                include_boundary: Some(true),
-            })))
-            .unwrap();
+        let dxf_exp: Value = serde_json::from_str(&srv.mesh_to_dxf(Parameters(MeshToDxfParams {
+            mesh_path: "surf_a.2dm".to_string(),
+            output_name: "surf_a.dxf".to_string(),
+            include_boundary: Some(true),
+        })))
+        .unwrap();
         assert_eq!(dxf_exp["ok"], true);
         assert_eq!(dxf_exp["data"]["report"]["face_count"], 1);
         assert_eq!(dxf_exp["data"]["report"]["boundary_loops"], 1);

@@ -13,6 +13,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.25,<5",
     "pytest>=8.3",
     "ruff>=0.12",
     "mcp-cad-core",

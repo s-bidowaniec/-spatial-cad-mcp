@@ -58,6 +58,15 @@ format-specific equivalents); argument failures produce `invalid_input`; anythin
 `internal_error` (with `retryable: true` for the agent's benefit). Real exceptions never leak:
 the `safe_tool` decorator converts them into envelopes and logs details to stderr.
 
+## Polyglot conventions (Python + Rust)
+
+- Layout is by role, not by language: `packages/` (MCP servers - `mcp-ifc` in Python, four servers in Rust), `shared/` (Python core), `crates/` (Rust shared libs + `cadctl`), `tests/` (Python integration tests), `tools/` (repo checks), `schemas/` (cross-language contracts), `docs/`, `examples/`, `planning/`.
+- One lockfile per ecosystem, both committed: `uv.lock` (uv workspace) and `Cargo.lock` (cargo workspace). This repo ships binaries/servers, so lockfiles are committed for reproducible builds; `.gitattributes` marks them `-diff`.
+- Toolchains pinned: `rust-toolchain.toml` (stable + rustfmt/clippy), `.python-version` (3.12), `requires-python >= 3.11` in the root `pyproject.toml`.
+- The language boundary is a process boundary, not FFI: see [ADR 0002](adr/0002-language-boundary.md). Python and Rust exchange only the JSON envelope; `cad-envelope` / `cad-sandbox` are the Rust twins of `mcp_cad_core`.
+- The cross-language contract is [`schemas/envelope.v1.schema.json`](../schemas/envelope.v1.schema.json), enforced by `tests/test_envelope_schema.py` (Python-produced envelopes plus Rust golden envelopes).
+- CI runs both ecosystems from one workflow (`.github/workflows/ci.yml`): Python (uv sync --locked, ruff, pytest, repo checks) and Rust (fmt --check, check, clippy -D warnings, test), with caches for uv and cargo. Locally the same gate is one command: `bash tools/check_all.sh`.
+
 ## Roadmap
 
 - mcp-ifc: geometry-level summaries (bounding boxes via `ifcopenshell.geom`), spatial-hierarchy

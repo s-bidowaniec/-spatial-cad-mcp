@@ -61,12 +61,22 @@ impl WorkspaceSandbox {
     /// Build a sandbox from an explicit root directory (must exist).
     pub fn from_root(root: impl AsRef<Path>) -> Result<Self, SandboxError> {
         let root = root.as_ref();
-        let resolved = std::fs::canonicalize(root)
-            .map_err(|_| SandboxError::new("workspace_root_missing", format!("MCP_CAD_WORKSPACE_ROOT points to a directory that does not exist: {}", root.display())))?;
+        let resolved = std::fs::canonicalize(root).map_err(|_| {
+            SandboxError::new(
+                "workspace_root_missing",
+                format!(
+                    "MCP_CAD_WORKSPACE_ROOT points to a directory that does not exist: {}",
+                    root.display()
+                ),
+            )
+        })?;
         if !resolved.is_dir() {
             return Err(SandboxError::new(
                 "workspace_root_not_dir",
-                format!("MCP_CAD_WORKSPACE_ROOT must be a directory, got a file: {}", resolved.display()),
+                format!(
+                    "MCP_CAD_WORKSPACE_ROOT must be a directory, got a file: {}",
+                    resolved.display()
+                ),
             ));
         }
         Ok(Self { root: resolved })
@@ -78,7 +88,9 @@ impl WorkspaceSandbox {
             Ok(value) if !value.trim().is_empty() => Self::from_root(value.trim()),
             _ => Err(SandboxError::new(
                 "workspace_not_configured",
-                format!("The workspace sandbox is not configured. Set the {WORKSPACE_ROOT_ENV} environment variable to the directory that servers are allowed to read and write."),
+                format!(
+                    "The workspace sandbox is not configured. Set the {WORKSPACE_ROOT_ENV} environment variable to the directory that servers are allowed to read and write."
+                ),
             )),
         }
     }
@@ -113,23 +125,28 @@ impl WorkspaceSandbox {
     /// Resolve a *new* output path under `<root>/outputs` for mutating tools.
     pub fn resolve_output(&self, file_name: &str) -> Result<PathBuf, SandboxError> {
         if file_name.is_empty()
-            || Path::new(file_name.replace('\\', "/").as_str()).file_name()
+            || Path::new(file_name.replace('\\', "/").as_str())
+                .file_name()
                 .and_then(|f| f.to_str())
                 != Some(file_name)
         {
             return Err(SandboxError::new(
                 "path_traversal",
-                "Output file name must be a plain file name without directories or '..'.".to_string(),
+                "Output file name must be a plain file name without directories or '..'."
+                    .to_string(),
             ));
         }
         let dir = self.root.join("outputs");
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| SandboxError::new("internal", format!("Cannot create outputs directory: {e}")))?;
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            SandboxError::new("internal", format!("Cannot create outputs directory: {e}"))
+        })?;
         let target = dir.join(file_name);
         if target.exists() {
             return Err(SandboxError::new(
                 "output_exists",
-                format!("Output file already exists, refusing to overwrite it: {file_name}. Choose a new, unique output name."),
+                format!(
+                    "Output file already exists, refusing to overwrite it: {file_name}. Choose a new, unique output name."
+                ),
             ));
         }
         Ok(target)
@@ -209,7 +226,11 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let sandbox = WorkspaceSandbox::from_root(&tmp).unwrap();
-        for bad in ["../secret.txt", "sub/../../secret.txt", "..\\..\\secret.txt"] {
+        for bad in [
+            "../secret.txt",
+            "sub/../../secret.txt",
+            "..\\..\\secret.txt",
+        ] {
             assert_eq!(sandbox.resolve(bad).unwrap_err().code, "path_traversal");
         }
         let _ = fs::remove_dir_all(&tmp);
@@ -252,9 +273,15 @@ mod tests {
         assert!(!target.exists());
 
         fs::write(&target, "x").unwrap();
-        assert_eq!(sandbox.resolve_output("modified.ifc").unwrap_err().code, "output_exists");
+        assert_eq!(
+            sandbox.resolve_output("modified.ifc").unwrap_err().code,
+            "output_exists"
+        );
         for bad in ["../evil.ifc", "sub/model.ifc", "", ".."] {
-            assert_eq!(sandbox.resolve_output(bad).unwrap_err().code, "path_traversal");
+            assert_eq!(
+                sandbox.resolve_output(bad).unwrap_err().code,
+                "path_traversal"
+            );
         }
         let _ = fs::remove_dir_all(&tmp);
     }

@@ -1,7 +1,7 @@
 # spatial-cad-mcp
 
 [![CI](https://github.com/s-bidowaniec/spatial-cad-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/s-bidowaniec/spatial-cad-mcp/actions/workflows/ci.yml)
-[![status: pre-alpha / concept](https://img.shields.io/badge/status-pre--alpha%20%2F%20concept-orange)](#project-status)
+[![status: pre-alpha / concept](https://img.shields.io/badge/status-pre--alpha%20%2F%20concept-orange)](#project-status-pre-alpha-concept-stage)
 
 ## Project status: pre-alpha, concept stage
 
@@ -46,6 +46,21 @@ spatial-cad-mcp/
 └── tests/                # pytest suite for sandboxing and tool error handling
 ```
 
+## Documentation
+
+- [docs/index.md](docs/index.md) - documentation map and agent navigation
+- [docs/onboarding.md](docs/onboarding.md) - canonical onboarding and the check commands
+- [docs/architecture.md](docs/architecture.md) - language split, transport, request flow, roadmap
+- [docs/tool-design.md](docs/tool-design.md) - tool surfaces, envelope, pagination, checklists
+- [docs/security.md](docs/security.md) - threat model, workspace sandbox, write rules
+- [docs/github-governance.md](docs/github-governance.md) + [ADRs](docs/adr/README.md) - issue/PR labels and decision records
+- [docs/writing-docs.md](docs/writing-docs.md) - how to write and link docs (CI-checked)
+- [docs/knowledge/](docs/knowledge/README.md) - agent-written knowledge base (tool usage, lessons learned)
+- [schemas/envelope.v1.schema.json](schemas/envelope.v1.schema.json) - cross-language envelope contract (Python + Rust)
+- [planning/README.md](planning/README.md) - repository-first coordination
+- [CONTRIBUTING.md](CONTRIBUTING.md) - how to pick up work and open a PR
+- `llms.txt` - machine-readable index for AI agents
+
 ## MCP tools (mcp-ifc, MVP)
 
 | Tool | Kind | What it returns |
@@ -65,7 +80,7 @@ Every tool returns an envelope:
 ## Install (uv workspace, Python 3.11+)
 
 ```bash
-uv sync --all-packages            # install all Python workspace members
+uv sync --locked --all-packages   # install all Python workspace members (lockfile pinned)
 uv run pytest                     # sandbox + tool error handling suite
 uv run ruff check . && uv run ruff format --check .
 ```
@@ -84,8 +99,10 @@ MCP client config: see [`examples/mcp.json`](examples/mcp.json).
 ## Rust side
 
 ```bash
-cargo check --workspace   # build all Rust crates
-cargo test --workspace    # cad-sandbox unit tests etc.
+cargo fmt --all -- --check            # format gate (also in CI)
+cargo check --workspace               # build all Rust crates
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace                # cad-sandbox unit tests etc.
 cargo run -p cadctl -- inspect path/to/model.ifc --top 10
 cargo run -p mcp-dxf      # ASCII DXF MCP server over stdio (rmcp 3.x)
 cargo run -p mcp-gis      # GeoPackage/GeoJSON MCP server over stdio (rmcp 3.x)
@@ -112,8 +129,15 @@ Details: [`docs/architecture.md`](docs/architecture.md),
 
 ## CI
 
-`.github/workflows/ci.yml` runs ruff + pytest (Python) and cargo check/clippy/test (Rust)
-on every push to `main` and on every PR.
+`.github/workflows/ci.yml` runs ruff + pytest + the repo checks (`tools/check_docs.py`,
+`tools/check_no_data.py`) for Python and cargo check/clippy/test (Rust) on every push to
+`main` and on every PR.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md): work via Issues (forms in `.github/ISSUE_TEMPLATE/`),
+one scope per PR, evidence in the PR description ([PR template](.github/pull_request_template.md)),
+labels per [docs/github-governance.md](docs/github-governance.md). Keep CI green.
 
 ## Commit conventions
 

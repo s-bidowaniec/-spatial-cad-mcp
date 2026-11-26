@@ -4,6 +4,12 @@ For any agent (Claude, GPT/Codex, Mistral, small models) and for humans. Claude 
 [CLAUDE.md](CLAUDE.md), which points here; Codex reads this file natively. Short on purpose:
 the details live in [docs/](docs/) and the per-package READMEs.
 
+Navigation: [docs/index.md](docs/index.md) and [docs/glossary.md](docs/glossary.md). Process:
+[onboarding](docs/onboarding.md), [CONTRIBUTING.md](CONTRIBUTING.md), [planning/README.md](planning/README.md);
+contract changes go through an [ADR](docs/adr/README.md). Repo checks
+(`tools/check_docs.py`, `tools/check_no_data.py`) run in CI - see
+[docs/onboarding.md#run-the-checks](docs/onboarding.md#run-the-checks).
+
 **Status: pre-alpha, MVP across all five tool groups.** `mcp-ifc` (Python) and all four Rust MCP
 servers (`mcp-dxf`, `mcp-gis`, `mcp-hdm`, `mcp-mesh`) implement sandboxed, envelope-shaped MVP
 tools. Tool names and envelopes may still evolve before the first tagged release.
@@ -12,7 +18,7 @@ tools. Tool names and envelopes may still evolve before the first tagged release
 
 - Python side: uv workspace (Python 3.11+).
   ```bash
-  uv sync --all-packages
+  uv sync --locked --all-packages
   uv run pytest; uv run ruff check . && uv run ruff format --check .
   ```
 - Rust side: cargo workspace (edition 2024, Rust 1.88+).
@@ -68,6 +74,8 @@ truncated. Narrow the query or paginate instead of asking for raw dumps.
    (see [docs/tool-design.md](docs/tool-design.md)).
 7. Do not guess file contents: IFC/DXF/GIS/HDM files can be hundreds of MB - always confirm
    through the summary/query tools, never by reading the raw file into the conversation.
+8. When you learn a reusable tool-usage pattern or hit a non-obvious error, record it in
+   [docs/knowledge/](docs/knowledge/README.md) (synthetic data only) - see [docs/knowledge/tool-usage.md](docs/knowledge/tool-usage.md).
 
 ## Tool index
 
@@ -103,3 +111,6 @@ commit. Human commits carry no trailer. Test and docs commits follow the same ru
   `src/main.rs` stdio entry, `src/server.rs` with tools), keep the section here in sync.
 - The sandbox rules in [docs/security.md](docs/security.md) are binding: changes require
   reviewer attention in the PR description.
+- Repo hygiene is enforced in CI: `python tools/check_docs.py` (links, anchors, cited paths,
+  AGENTS.md budget) and `python tools/check_no_data.py` (no real model data in Git) - see
+  [docs/engineering.md](docs/engineering.md); write docs per [docs/writing-docs.md](docs/writing-docs.md).

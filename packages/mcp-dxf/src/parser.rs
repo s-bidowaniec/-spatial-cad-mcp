@@ -250,9 +250,7 @@ pub fn detect_coord_convention(median_x: f64, median_y: f64) -> CoordConvention 
     if digits == 8 {
         let prefix = (x_int / 1_000_000) as u32;
         if (1..=60).contains(&prefix) {
-            let epsg = (28..=38)
-                .contains(&prefix)
-                .then_some(25800 + prefix);
+            let epsg = (28..=38).contains(&prefix).then_some(25800 + prefix);
             return CoordConvention {
                 convention: format!("utm_zone_prefixed_{prefix}"),
                 likely_epsg: epsg,
@@ -287,7 +285,8 @@ pub fn detect_coord_convention(median_x: f64, median_y: f64) -> CoordConvention 
     CoordConvention {
         convention: "unknown".to_string(),
         likely_epsg: None,
-        note: "Coordinates do not match a standard projected or local shorthand convention.".to_string(),
+        note: "Coordinates do not match a standard projected or local shorthand convention."
+            .to_string(),
     }
 }
 
@@ -450,9 +449,8 @@ pub fn export_dxf_slice(
     entity_type_filter: Option<&str>,
     output_path: &Path,
 ) -> Result<DxfSliceStats, ToolError> {
-    let raw = std::fs::read(input_path).map_err(|e| {
-        ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}"))
-    })?;
+    let raw = std::fs::read(input_path)
+        .map_err(|e| ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}")))?;
     if raw.starts_with(b"AutoCAD Binary DXF") {
         return Err(ToolError::new(
             "unsupported_format",
@@ -570,7 +568,9 @@ pub fn export_dxf_slice(
 
     out.push_str("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n");
     for layer in &kept_layers {
-        out.push_str(&format!("0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"));
+        out.push_str(&format!(
+            "0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n"
+        ));
     }
     out.push_str("0\nENDTAB\n0\nENDSEC\n");
 
@@ -582,9 +582,8 @@ pub fn export_dxf_slice(
     }
     out.push_str("0\nENDSEC\n0\nEOF\n");
 
-    std::fs::write(output_path, out).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed writing sliced DXF: {e}"))
-    })?;
+    std::fs::write(output_path, out)
+        .map_err(|e| ToolError::new("internal_error", format!("Failed writing sliced DXF: {e}")))?;
 
     Ok(DxfSliceStats {
         before_entities,
@@ -595,9 +594,8 @@ pub fn export_dxf_slice(
 }
 
 pub fn parse_dxf_file(path: &Path) -> Result<DxfDocument, ToolError> {
-    let raw = std::fs::read(path).map_err(|e| {
-        ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}"))
-    })?;
+    let raw = std::fs::read(path)
+        .map_err(|e| ToolError::new("cannot_open_dxf", format!("Failed to read DXF file: {e}")))?;
     parse_dxf_bytes(&raw)
 }
 
@@ -783,7 +781,10 @@ pub fn parse_dxf_bytes(raw: &[u8]) -> Result<DxfDocument, ToolError> {
 
     let header_extents = match (header_extmin, header_extmax) {
         (Some(min), Some(max))
-            if min[0] <= max[0] && min[1] <= max[1] && min[0].abs() < 1e18 && max[0].abs() < 1e18 =>
+            if min[0] <= max[0]
+                && min[1] <= max[1]
+                && min[0].abs() < 1e18
+                && max[0].abs() < 1e18 =>
         {
             Some(BBox3D { min, max })
         }
@@ -956,9 +957,7 @@ fn parse_polyline(
                 }
                 // Skip polyface face-index records (flag 128 without 64)
                 let is_face_record = (vflags & 128) != 0 && (vflags & 64) == 0;
-                if !is_face_record
-                    && let (Some(x), Some(y)) = (vx, vy)
-                {
+                if !is_face_record && let (Some(x), Some(y)) = (vx, vy) {
                     pts.push([x, y, vz]);
                 }
                 continue;
@@ -1061,12 +1060,7 @@ fn parse_single_entity(
             }
             10 => {
                 flush_cur(
-                    &mut pts,
-                    &mut cur_x,
-                    &mut cur_y,
-                    &mut cur_z,
-                    elevation,
-                    &mut has_z,
+                    &mut pts, &mut cur_x, &mut cur_y, &mut cur_z, elevation, &mut has_z,
                 );
                 cur_x = val.parse().ok();
             }
@@ -1110,12 +1104,7 @@ fn parse_single_entity(
     }
 
     flush_cur(
-        &mut pts,
-        &mut cur_x,
-        &mut cur_y,
-        &mut cur_z,
-        elevation,
-        &mut has_z,
+        &mut pts, &mut cur_x, &mut cur_y, &mut cur_z, elevation, &mut has_z,
     );
 
     // Apply elevation to LWPOLYLINE vertices if elevation appeared after vertices

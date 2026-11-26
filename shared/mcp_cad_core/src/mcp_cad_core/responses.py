@@ -100,9 +100,12 @@ def _error_from_exception(exc: BaseException) -> dict[str, Any]:
     if isinstance(exc, SandboxError):
         return error(exc.code, exc.message)
     if isinstance(exc, ToolError):
-        return error(
-            exc.code, exc.message, details=exc.details, retryable=exc.retryable, hints=exc.hints
-        )
+        fields: dict[str, Any] = {"retryable": exc.retryable}
+        if exc.details is not None:
+            fields["details"] = exc.details
+        if exc.hints:
+            fields["hints"] = exc.hints
+        return error(exc.code, exc.message, **fields)
     return error(
         "internal_error",
         "Unexpected error while executing the tool. See server stderr logs for details and retry.",

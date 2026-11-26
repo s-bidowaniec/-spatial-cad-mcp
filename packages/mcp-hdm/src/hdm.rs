@@ -179,9 +179,8 @@ pub fn export_timeseries_csv(
     for p in &extracted.points {
         csv.push_str(&format!("{},{},{}\n", p.step, p.time, p.value));
     }
-    std::fs::write(output_path, csv).map_err(|e| {
-        ToolError::new("internal_error", format!("Failed writing CSV slice: {e}"))
-    })?;
+    std::fs::write(output_path, csv)
+        .map_err(|e| ToolError::new("internal_error", format!("Failed writing CSV slice: {e}")))?;
     Ok(CsvExportStats {
         format: extracted.format,
         series_name: extracted.series_name,
@@ -224,7 +223,15 @@ pub fn query_profiles(
     }
 }
 
-fn bary_interp_val(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2], va: f64, vb: f64, vc: f64) -> Option<f64> {
+fn bary_interp_val(
+    p: [f64; 2],
+    a: [f64; 2],
+    b: [f64; 2],
+    c: [f64; 2],
+    va: f64,
+    vb: f64,
+    vc: f64,
+) -> Option<f64> {
     let v0 = [b[0] - a[0], b[1] - a[1]];
     let v1 = [c[0] - a[0], c[1] - a[1]];
     let v2 = [p[0] - a[0], p[1] - a[1]];
@@ -252,13 +259,20 @@ fn query_selafin_profile(
     end: [f64; 2],
     samples: usize,
 ) -> Result<ProfilePayload, ToolError> {
-    let raw = std::fs::read(path)
-        .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read Selafin file: {e}")))?;
+    let raw = std::fs::read(path).map_err(|e| {
+        ToolError::new(
+            "cannot_open_hdm",
+            format!("Failed to read Selafin file: {e}"),
+        )
+    })?;
     let hdr = parse_selafin_header(&raw)?;
     if hdr.ndp != 3 {
         return Err(ToolError::new(
             "unsupported_format",
-            format!("Selafin profile interpolation currently supports triangular meshes (ndp=3), got ndp={}.", hdr.ndp),
+            format!(
+                "Selafin profile interpolation currently supports triangular meshes (ndp=3), got ndp={}.",
+                hdr.ndp
+            ),
         ));
     }
 
@@ -324,7 +338,10 @@ fn query_selafin_profile(
         Some(s) => {
             return Err(ToolError::new(
                 "invalid_input",
-                format!("time_step {s} out of bounds (available steps: 0..{}).", steps.len()),
+                format!(
+                    "time_step {s} out of bounds (available steps: 0..{}).",
+                    steps.len()
+                ),
             ));
         }
         None => steps.len() - 1,
@@ -385,7 +402,8 @@ fn query_selafin_profile(
 
     Ok(ProfilePayload::SelafinLine {
         variable: hdr.variables[var_idx].name.clone(),
-        unit: (!hdr.variables[var_idx].unit.is_empty()).then(|| hdr.variables[var_idx].unit.clone()),
+        unit: (!hdr.variables[var_idx].unit.is_empty())
+            .then(|| hdr.variables[var_idx].unit.clone()),
         time_step: step_idx,
         time_seconds: round3(time_seconds),
         length: round3(length),
@@ -533,7 +551,8 @@ impl<'a> FortranReader<'a> {
     }
 
     fn next_record(&mut self) -> Result<&'a [u8], ToolError> {
-        let bad = |msg: &str| ToolError::new("cannot_open_hdm", format!("Invalid Selafin record: {msg}"));
+        let bad =
+            |msg: &str| ToolError::new("cannot_open_hdm", format!("Invalid Selafin record: {msg}"));
         let len_bytes: [u8; 4] = self
             .data
             .get(self.pos..self.pos + 4)
@@ -636,7 +655,9 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
         ));
     }
     let fmt_tag = if title_rec.len() >= 80 {
-        String::from_utf8_lossy(&title_rec[72..80]).trim().to_string()
+        String::from_utf8_lossy(&title_rec[72..80])
+            .trim()
+            .to_string()
     } else {
         String::new()
     };
@@ -644,7 +665,10 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
 
     let nbv = read_be_i32_vec(r.next_record()?)?;
     if nbv.len() < 2 {
-        return Err(ToolError::new("cannot_open_hdm", "Invalid Selafin NBV record."));
+        return Err(ToolError::new(
+            "cannot_open_hdm",
+            "Invalid Selafin NBV record.",
+        ));
     }
     let total_vars = (nbv[0].max(0) + nbv[1].max(0)) as usize;
     let mut variables = Vec::with_capacity(total_vars);
@@ -680,7 +704,10 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
 
     let dims = read_be_i32_vec(r.next_record()?)?;
     if dims.len() < 3 {
-        return Err(ToolError::new("cannot_open_hdm", "Invalid Selafin dimensions record."));
+        return Err(ToolError::new(
+            "cannot_open_hdm",
+            "Invalid Selafin dimensions record.",
+        ));
     }
     let nelem = dims[0].max(0) as usize;
     let npoin = dims[1].max(0) as usize;
@@ -691,8 +718,8 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
     let x_rec = r.next_record()?;
     let y_rec = r.next_record()?;
 
-    let is_double = fmt_tag.eq_ignore_ascii_case("SERAFIND")
-        || (npoin > 0 && x_rec.len() == npoin * 8);
+    let is_double =
+        fmt_tag.eq_ignore_ascii_case("SERAFIND") || (npoin > 0 && x_rec.len() == npoin * 8);
 
     let xs = read_be_floats(x_rec, is_double)?;
     let ys = read_be_floats(y_rec, is_double)?;
@@ -713,8 +740,12 @@ fn parse_selafin_header(raw: &[u8]) -> Result<SelafinHeader, ToolError> {
 }
 
 fn summarize_selafin(path: &Path) -> Result<HdmSummary, ToolError> {
-    let raw = std::fs::read(path)
-        .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read Selafin file: {e}")))?;
+    let raw = std::fs::read(path).map_err(|e| {
+        ToolError::new(
+            "cannot_open_hdm",
+            format!("Failed to read Selafin file: {e}"),
+        )
+    })?;
     let hdr = parse_selafin_header(&raw)?;
 
     let mut r = FortranReader {
@@ -787,8 +818,12 @@ fn query_selafin_series(
     node_index: Option<usize>,
     xy: Option<[f64; 2]>,
 ) -> Result<ExtractedSeries, ToolError> {
-    let raw = std::fs::read(path)
-        .map_err(|e| ToolError::new("cannot_open_hdm", format!("Failed to read Selafin file: {e}")))?;
+    let raw = std::fs::read(path).map_err(|e| {
+        ToolError::new(
+            "cannot_open_hdm",
+            format!("Failed to read Selafin file: {e}"),
+        )
+    })?;
     let hdr = parse_selafin_header(&raw)?;
 
     let want = var_name.trim().to_ascii_lowercase();
@@ -816,7 +851,10 @@ fn query_selafin_series(
         if idx >= hdr.npoin {
             return Err(ToolError::new(
                 "invalid_input",
-                format!("node_index {idx} is out of bounds (node_count = {}).", hdr.npoin),
+                format!(
+                    "node_index {idx} is out of bounds (node_count = {}).",
+                    hdr.npoin
+                ),
             ));
         }
         (idx, None)
@@ -901,7 +939,8 @@ fn query_selafin_series(
     Ok(ExtractedSeries {
         format: HdmFormat::TelemacSelafin,
         series_name: hdr.variables[var_idx].name.clone(),
-        unit: (!hdr.variables[var_idx].unit.is_empty()).then(|| hdr.variables[var_idx].unit.clone()),
+        unit: (!hdr.variables[var_idx].unit.is_empty())
+            .then(|| hdr.variables[var_idx].unit.clone()),
         resolved_node_index: Some(resolved_idx),
         distance_to_xy: dist,
         stats,
@@ -1155,7 +1194,10 @@ fn summarize_2dm(path: &Path) -> Result<HdmSummary, ToolError> {
     details.insert("triangles".to_string(), serde_json::json!(tris));
     details.insert("quads".to_string(), serde_json::json!(quads));
     details.insert("material_count".to_string(), serde_json::json!(mats.len()));
-    details.insert("nodestring_count".to_string(), serde_json::json!(nodestrings));
+    details.insert(
+        "nodestring_count".to_string(),
+        serde_json::json!(nodestrings),
+    );
 
     Ok(HdmSummary {
         format: HdmFormat::Sms2dm,
@@ -1223,7 +1265,10 @@ mod tests {
         write_record(&mut buf, &iparam);
 
         // nelem=1, npoin=3, ndp=3, i1=1
-        let dims: Vec<u8> = [1i32, 3, 3, 1].iter().flat_map(|v| v.to_be_bytes()).collect();
+        let dims: Vec<u8> = [1i32, 3, 3, 1]
+            .iter()
+            .flat_map(|v| v.to_be_bytes())
+            .collect();
         write_record(&mut buf, &dims);
 
         let ikle: Vec<u8> = [1i32, 2, 3].iter().flat_map(|v| v.to_be_bytes()).collect();
@@ -1300,8 +1345,7 @@ mod tests {
         }
 
         let csv_path = dir.join("depth.csv");
-        let csv_stats =
-            export_timeseries_csv(&p, "WATER DEPTH", Some(1), None, &csv_path).unwrap();
+        let csv_stats = export_timeseries_csv(&p, "WATER DEPTH", Some(1), None, &csv_path).unwrap();
         assert_eq!(csv_stats.rows_written, 2);
         let csv_text = std::fs::read_to_string(&csv_path).unwrap();
         assert!(csv_text.starts_with("step,time,value\n"));
